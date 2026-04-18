@@ -205,7 +205,7 @@ function VoiceMode() {
     const id = `sess-${shortId()}`;
     setSessionId(id);
     setIsLive(true);
-    getSocket().send({ type: "start", mode: "speech2isl", sessionId: id });
+    getSocket().send({ type: "start", mode: "speech2isl", sessionId: id, sampleRate: mic.sampleRate });
   }
 
   function stop() {

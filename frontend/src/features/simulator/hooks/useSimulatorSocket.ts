@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { getSocket } from "@/api/socket";
 import { useSimulatorStore } from "@/store/simulatorStore";
 import { useDebuggerStore } from "@/store/debuggerStore";
@@ -6,22 +6,27 @@ import type { ServerMsg } from "@/api/types";
 
 /**
  * Wires the simulator WebSocket to Zustand stores.
- * One hook to rule them all \u2014 mount once on the Simulator page.
+ * Mount once on the Simulator page.
  */
 export function useSimulatorSocket() {
-  const setWsStatus = useSimulatorStore((s) => s.setWsStatus);
+  const setWsStatus     = useSimulatorStore((s) => s.setWsStatus);
   const appendTranscript = useSimulatorStore((s) => s.appendTranscript);
-  const setGloss = useSimulatorStore((s) => s.setGloss);
-  const setAvatarCue = useSimulatorStore((s) => s.setAvatarCue);
-  const setRecognized = useSimulatorStore((s) => s.setRecognized);
-  const appendTts = useSimulatorStore((s) => s.appendTts);
-  const setLatency = useSimulatorStore((s) => s.setLatency);
-  const mode = useSimulatorStore((s) => s.mode);
+  const setGloss        = useSimulatorStore((s) => s.setGloss);
+  const setAvatarCue    = useSimulatorStore((s) => s.setAvatarCue);
+  const setRecognized   = useSimulatorStore((s) => s.setRecognized);
+  const appendTts       = useSimulatorStore((s) => s.appendTts);
+  const setLatency      = useSimulatorStore((s) => s.setLatency);
+  const setAlert        = useSimulatorStore((s) => s.setAlert);
+  const setEmotion      = useSimulatorStore((s) => s.setEmotion);
+  const mode            = useSimulatorStore((s) => s.mode);
 
-  const pushLog = useDebuggerStore((s) => s.pushLog);
+  const pushLog        = useDebuggerStore((s) => s.pushLog);
   const setLastPayload = useDebuggerStore((s) => s.setLastPayload);
   const pushConfidence = useDebuggerStore((s) => s.pushConfidence);
-  const pushLatency = useDebuggerStore((s) => s.pushLatency);
+  const pushLatency    = useDebuggerStore((s) => s.pushLatency);
+
+  // Auto-dismiss alert after 8 s
+  const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const socket = getSocket();
@@ -60,19 +65,34 @@ export function useSimulatorSocket() {
           });
           break;
 
-        case "tts_ready":
+        case "tts_ready": {
           appendTts({
             id: `tts-${Date.now()}`,
             text: msg.captions,
             audioUrl: msg.audioUrl,
             timestampMs: Date.now(),
           });
-          // Fallback to Web Speech API if no URL (mock)
-          if (!msg.audioUrl && "speechSynthesis" in window) {
+          if (msg.audioUrl) {
+            // Play TTS audio returned by ElevenLabs
+            const audio = new Audio(msg.audioUrl);
+            audio.play().catch(() => {});
+          } else if ("speechSynthesis" in window) {
+            // Fallback to Web Speech API when backend returns no URL
             const u = new SpeechSynthesisUtterance(msg.captions);
             u.rate = 1.0;
             window.speechSynthesis.speak(u);
           }
+          break;
+        }
+
+        case "alert":
+          if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
+          setAlert({ alertType: msg.alertType, confidence: msg.confidence, label: msg.label, seenAt: Date.now() });
+          alertTimerRef.current = setTimeout(() => setAlert(null), 8000);
+          break;
+
+        case "emotion":
+          setEmotion({ emotion: msg.emotion, intensity: msg.intensity, morphTargets: msg.morphTargets });
           break;
 
         case "log":
@@ -97,6 +117,7 @@ export function useSimulatorSocket() {
       offStatus();
       offMsg();
       socket.disconnect();
+      if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);

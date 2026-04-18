@@ -1,11 +1,16 @@
 """
 Unified WebSocket endpoint: /ws/simulator
 
-Speaks the typed ClientMsg / ServerMsg protocol defined in frontend-new/src/api/types.ts.
+Speaks the typed ClientMsg / ServerMsg protocol defined in frontend/src/api/types.ts.
 
 Modes:
   speech2isl — audio_chunk (base64 PCM16) → Deepgram STT → ISL grammar → gloss + avatar_cue
+               Also runs: YAMNet (sound alerts) + SpeechBrain (emotion) in background
   isl2speech — landmarks (HolisticFrame)  → sign classifier → sentence → ElevenLabs TTS
+
+Extra message types emitted:
+  alert   — {"type":"alert","alertType":str,"confidence":float,"label":str}
+  emotion — {"type":"emotion","emotion":str,"intensity":float,"morphTargets":dict}
 """
 
 import asyncio
@@ -20,19 +25,25 @@ from src.services.sign_classifier import classify_sign
 from src.services.sentence_former import gloss_to_sentence
 from src.services.isl_grammar import text_to_gloss
 from src.services.elevenlabs_client import synthesize
+from src.services.emotion_merger import analyze_audio_sync
+from src.services.yamnet_service import detect_alert_sync
 
 router = APIRouter()
 
-# Tuning — same as isl_recognition.py
 HOLD_DURATION   = 0.5
 SILENCE_TIMEOUT = 1.5
 MOVEMENT_THRESH = 0.04
 
-DEFAULT_SAMPLE_RATE = 48000  # browser AudioContext default
+DEFAULT_SAMPLE_RATE = 48000
+
+# YAMNet runs once we've buffered this many bytes (≈ 1.5 s at 48 kHz PCM16)
+YAMNET_TRIGGER_BYTES = 48_000 * 2 * 2   # 2 s worth
+
+# Emotion runs on audio buffered since last final transcript (min 0.5 s)
+EMOTION_MIN_BYTES = 48_000 * 2          # 0.5 s
 
 
 def _unflatten(arr: list[float]) -> list[list[float]]:
-    """Convert flattened [x0,y0,z0,x1,y1,z1,...] to [[x,y,z],...]."""
     return [[arr[i], arr[i + 1], arr[i + 2]] for i in range(0, len(arr) - 2, 3)]
 
 
@@ -44,20 +55,14 @@ def _landmark_delta(prev: list, curr: list) -> float:
 
 
 def _make_gloss_tokens(words: list[str]) -> list[dict]:
-    """Convert word list to GlossToken array with timing."""
-    tokens = []
-    for i, word in enumerate(words):
-        tokens.append({
-            "gloss":   word,
-            "startMs": i * 600,
-            "endMs":   (i + 1) * 600,
-        })
-    return tokens
+    return [
+        {"gloss": word, "startMs": i * 600, "endMs": (i + 1) * 600}
+        for i, word in enumerate(words)
+    ]
 
 
 def _nmm_to_sentiment(nmm: str) -> str:
-    mapping = {"question": "neutral", "negation": "urgent", "none": "neutral"}
-    return mapping.get(nmm, "neutral")
+    return {"question": "neutral", "negation": "urgent", "none": "neutral"}.get(nmm, "neutral")
 
 
 @router.websocket("/ws/simulator")
@@ -65,9 +70,13 @@ async def simulator_websocket(ws: WebSocket):
     await ws.accept()
 
     mode: str | None = None
+    sample_rate: int = DEFAULT_SAMPLE_RATE
 
     # ── speech2isl state ──────────────────────────────────────────────────
     dg_connection = None
+    audio_buffer = bytearray()        # PCM16 accumulated for emotion
+    yamnet_buffer = bytearray()       # PCM16 accumulated for YAMNet
+    last_emotion: dict = {}           # carry forward to next avatar_cue
 
     # ── isl2speech state ──────────────────────────────────────────────────
     sign_buffer: list[str] = []
@@ -87,10 +96,9 @@ async def simulator_websocket(ws: WebSocket):
 
     # ── speech2isl helpers ────────────────────────────────────────────────
 
-    async def init_deepgram(sample_rate: int):
+    async def init_deepgram(sr: int):
         nonlocal dg_connection
-        api_key = os.getenv("DEEPGRAM_API_KEY", "")
-        dg = DeepgramClient(api_key)
+        dg = DeepgramClient(os.getenv("DEEPGRAM_API_KEY", ""))
         conn = dg.listen.asyncwebsocket.v("1")
 
         async def on_transcript(self, result, **kwargs):
@@ -100,7 +108,6 @@ async def simulator_websocket(ws: WebSocket):
                     return
                 is_final = result.is_final
                 t0 = int(time.time() * 1000)
-
                 await send({
                     "type":        "transcript",
                     "partial":     not is_final,
@@ -108,7 +115,6 @@ async def simulator_websocket(ws: WebSocket):
                     "confidence":  result.channel.alternatives[0].confidence,
                     "timestampMs": t0,
                 })
-
                 if is_final:
                     asyncio.create_task(handle_final_transcript(text, t0))
             except Exception:
@@ -121,10 +127,10 @@ async def simulator_websocket(ws: WebSocket):
         conn.on(LiveTranscriptionEvents.Error, on_error)
 
         options = LiveOptions(
-            model="nova-2",
+            model="nova-3",
             language="en-IN",
             encoding="linear16",
-            sample_rate=sample_rate,
+            sample_rate=sr,
             channels=1,
             smart_format=True,
             interim_results=True,
@@ -135,7 +141,19 @@ async def simulator_websocket(ws: WebSocket):
         dg_connection = conn
 
     async def handle_final_transcript(text: str, t0: int):
+        nonlocal audio_buffer, last_emotion
         t1 = int(time.time() * 1000)
+
+        # Run emotion on audio buffered since last transcript (background thread)
+        audio_snapshot = bytes(audio_buffer)
+        audio_buffer.clear()
+        if len(audio_snapshot) >= EMOTION_MIN_BYTES:
+            emotion = await asyncio.to_thread(
+                analyze_audio_sync, audio_snapshot, sample_rate
+            )
+            last_emotion = emotion
+            await send({"type": "emotion", **emotion})
+
         try:
             result = await text_to_gloss(text)
             words: list[str] = result.get("gloss", [])
@@ -151,22 +169,34 @@ async def simulator_websocket(ws: WebSocket):
                 "sourceText": text,
             })
 
+            # Merge NMM morph targets with emotion morph targets
+            nmm_morph = (
+                {"brow_raise": 0.7} if nmm == "question" else
+                {"brow_lower": 0.6} if nmm == "negation" else {}
+            )
+            morph = {**last_emotion.get("morphTargets", {}), **nmm_morph}
+
             await send({
-                "type":       "avatar_cue",
-                "clip":       words[0].lower() if words else "idle",
-                "morphTargets": {"brow_raise": 0.7} if nmm == "question" else
-                               {"brow_lower": 0.6} if nmm == "negation" else {},
-                "durationMs": len(words) * 600,
+                "type":         "avatar_cue",
+                "clip":         words[0].lower() if words else "idle",
+                "morphTargets": morph,
+                "durationMs":   len(words) * 600,
             })
 
             await send({
                 "type":      "log",
                 "level":     "info",
-                "msg":       f"gloss: {' '.join(words)} [{nmm}]",
+                "msg":       f"gloss: {' '.join(words)} [{nmm}] emotion:{last_emotion.get('emotion','?')}",
                 "latencyMs": int(time.time() * 1000) - t1,
             })
         except Exception as e:
             await send({"type": "error", "code": "grammar_error", "msg": str(e)})
+
+    async def maybe_run_yamnet(audio_bytes: bytes):
+        """Run YAMNet on buffered audio and emit alert if detected."""
+        alert = await asyncio.to_thread(detect_alert_sync, audio_bytes, sample_rate)
+        if alert:
+            await send({"type": "alert", **alert})
 
     # ── isl2speech helpers ────────────────────────────────────────────────
 
@@ -186,16 +216,11 @@ async def simulator_websocket(ws: WebSocket):
 
         try:
             audio_bytes = await synthesize(sentence)
-            audio_b64 = base64.b64encode(audio_bytes).decode()
-            audio_url = f"data:audio/mpeg;base64,{audio_b64}"
+            audio_url = "data:audio/mpeg;base64," + base64.b64encode(audio_bytes).decode()
         except Exception:
             audio_url = ""
 
-        await send({
-            "type":     "tts_ready",
-            "audioUrl": audio_url,
-            "captions": sentence,
-        })
+        await send({"type": "tts_ready", "audioUrl": audio_url, "captions": sentence})
 
     # ── main loop ─────────────────────────────────────────────────────────
 
@@ -205,25 +230,20 @@ async def simulator_websocket(ws: WebSocket):
             data = json.loads(raw)
             msg_type = data.get("type")
 
-            # ── ping / pong ──────────────────────────────────────────────
             if msg_type == "ping":
                 await send({"type": "pong", "t": data.get("t", 0)})
                 continue
 
-            # ── stop ────────────────────────────────────────────────────
             if msg_type == "stop":
                 break
 
-            # ── start session ────────────────────────────────────────────
             if msg_type == "start":
                 mode = data.get("mode")
                 sample_rate = data.get("sampleRate", DEFAULT_SAMPLE_RATE)
-
                 if mode == "speech2isl":
                     await init_deepgram(sample_rate)
                     await send({"type": "log", "level": "info",
                                 "msg": "speech2isl ready", "latencyMs": 0})
-
                 elif mode == "isl2speech":
                     await send({"type": "log", "level": "info",
                                 "msg": "isl2speech ready", "latencyMs": 0})
@@ -233,8 +253,19 @@ async def simulator_websocket(ws: WebSocket):
             if msg_type == "audio_chunk" and mode == "speech2isl":
                 if dg_connection:
                     try:
-                        audio_bytes = base64.b64decode(data["pcm16Base64"])
-                        await dg_connection.send(audio_bytes)
+                        chunk = base64.b64decode(data["pcm16Base64"])
+                        await dg_connection.send(chunk)
+
+                        # Accumulate for emotion (cleared per-transcript)
+                        audio_buffer.extend(chunk)
+
+                        # Accumulate for YAMNet; fire + clear when threshold hit
+                        yamnet_buffer.extend(chunk)
+                        if len(yamnet_buffer) >= YAMNET_TRIGGER_BYTES:
+                            snapshot = bytes(yamnet_buffer)
+                            yamnet_buffer.clear()
+                            asyncio.create_task(maybe_run_yamnet(snapshot))
+
                     except Exception as e:
                         await send({"type": "error", "code": "audio_error", "msg": str(e)})
                 continue
@@ -243,7 +274,7 @@ async def simulator_websocket(ws: WebSocket):
             if msg_type == "landmarks" and mode == "isl2speech":
                 frame = data.get("frame", {})
                 right_flat = frame.get("rightHand", [])
-                if len(right_flat) < 63:  # need at least 21 landmarks × 3
+                if len(right_flat) < 63:
                     continue
 
                 landmarks = _unflatten(right_flat)
@@ -262,13 +293,12 @@ async def simulator_websocket(ws: WebSocket):
                             cooldown_until = now + 0.8
                             sign_buffer.append(sign)
 
-                            t_ms = int(now * 1000)
                             await send({
                                 "type":        "transcript",
                                 "partial":     True,
                                 "text":        sign,
                                 "confidence":  0.85,
-                                "timestampMs": t_ms,
+                                "timestampMs": int(now * 1000),
                             })
 
                             if flush_task and not flush_task.done():

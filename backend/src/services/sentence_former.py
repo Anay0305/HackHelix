@@ -1,22 +1,19 @@
 """
-Converts an ISL gloss sequence into a natural English sentence using Claude.
-ISL gloss is SOV-ordered with dropped function words — Claude reconstructs
+Converts an ISL gloss sequence into a natural English sentence using Groq Llama-3.3.
+ISL gloss is SOV-ordered with dropped function words — Llama reconstructs
 proper English with correct grammar and natural phrasing.
 """
 
 import os
-import anthropic
+from groq import AsyncGroq
 
-_client = None
+_client: AsyncGroq | None = None
 
-def _get_client() -> anthropic.Anthropic:
+
+def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        kwargs = {"api_key": os.getenv("ANTHROPIC_API_KEY", "")}
-        base_url = os.getenv("ANTHROPIC_BASE_URL")
-        if base_url:
-            kwargs["base_url"] = base_url
-        _client = anthropic.Anthropic(**kwargs)
+        _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY", ""))
     return _client
 
 
@@ -52,19 +49,17 @@ async def gloss_to_sentence(gloss_tokens: list[str]) -> str:
 
     gloss = " ".join(gloss_tokens)
 
-    # Build few-shot messages
-    messages = []
+    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
     for src, tgt in EXAMPLES:
-        messages.append({"role": "user", "content": src})
+        messages.append({"role": "user",      "content": src})
         messages.append({"role": "assistant", "content": tgt})
     messages.append({"role": "user", "content": gloss})
 
     client = _get_client()
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
+    response = await client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
         max_tokens=100,
-        system=SYSTEM_PROMPT,
         messages=messages,
     )
 
-    return response.content[0].text.strip()
+    return response.choices[0].message.content.strip()

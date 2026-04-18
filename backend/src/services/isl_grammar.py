@@ -1,5 +1,5 @@
 """
-Converts natural English text to ISL gloss sequence + NMM flags using Claude.
+Converts natural English text to ISL gloss sequence + NMM flags using Groq Llama-3.3.
 
 ISL grammar rules applied:
   - SOV word order (verb moves to end)
@@ -12,19 +12,15 @@ ISL grammar rules applied:
 
 import json
 import os
-import anthropic
+from groq import AsyncGroq
 
-_client = None
+_client: AsyncGroq | None = None
 
 
-def _get_client() -> anthropic.Anthropic:
+def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        kwargs = {"api_key": os.getenv("ANTHROPIC_API_KEY", "")}
-        base_url = os.getenv("ANTHROPIC_BASE_URL")
-        if base_url:
-            kwargs["base_url"] = base_url
-        _client = anthropic.Anthropic(**kwargs)
+        _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY", ""))
     return _client
 
 
@@ -70,24 +66,22 @@ async def text_to_gloss(text: str) -> dict:
     if not text.strip():
         return {"gloss": [], "nmm": "none"}
 
-    messages = []
+    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
     for src, tgt in EXAMPLES:
         messages.append({"role": "user",      "content": src})
         messages.append({"role": "assistant", "content": tgt})
     messages.append({"role": "user", "content": text.strip()})
 
     client = _get_client()
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
+    response = await client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
         max_tokens=150,
-        system=SYSTEM_PROMPT,
         messages=messages,
     )
 
-    raw = response.content[0].text.strip()
+    raw = response.choices[0].message.content.strip()
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        # Fallback: treat each word as a gloss token
         words = [w.upper() for w in text.split() if w.isalpha()]
         return {"gloss": words, "nmm": "none"}

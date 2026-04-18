@@ -148,7 +148,7 @@ export interface ProgressSubmitResponse {
 export type SimulatorMode = "speech2isl" | "isl2speech";
 
 export type ClientMsg =
-  | { type: "start"; mode: SimulatorMode; sessionId: string }
+  | { type: "start"; mode: SimulatorMode; sessionId: string; sampleRate?: number }
   | { type: "audio_chunk"; seq: number; pcm16Base64: string }
   | { type: "landmarks"; seq: number; frame: HolisticFrame }
   | { type: "stop" }
@@ -187,7 +187,19 @@ export type ServerMsg =
       meta?: unknown;
     }
   | { type: "pong"; t: number }
-  | { type: "error"; code: string; msg: string };
+  | { type: "error"; code: string; msg: string }
+  | {
+      type: "alert";
+      alertType: "fire_alarm" | "doorbell" | "horn" | "siren" | "phone" | "alarm" | "bell";
+      confidence: number;
+      label: string;
+    }
+  | {
+      type: "emotion";
+      emotion: string;
+      intensity: number;
+      morphTargets: Record<string, number>;
+    };
 
 export interface GlossToken {
   gloss: string;

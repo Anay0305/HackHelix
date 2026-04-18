@@ -29,7 +29,8 @@ frontend-old/.env.local
 
 # Large data files
 backend/data/pose_db.json
-datasets/
+datasets/videos/
+datasets/poses/
 
 # Public key files / certs
 *.pem

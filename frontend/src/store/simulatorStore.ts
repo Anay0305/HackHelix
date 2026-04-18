@@ -25,6 +25,19 @@ export interface TtsHistoryItem {
   timestampMs: number;
 }
 
+export interface AlertState {
+  alertType: string;
+  confidence: number;
+  label: string;
+  seenAt: number;
+}
+
+export interface EmotionState {
+  emotion: string;
+  intensity: number;
+  morphTargets: Record<string, number>;
+}
+
 interface SimulatorState {
   mode: SimulatorMode;
   isLive: boolean;
@@ -42,6 +55,10 @@ interface SimulatorState {
   recognized: string;
   recognizedConfidence: number;
   ttsHistory: TtsHistoryItem[];
+
+  // Emotion + alerts
+  alert: AlertState | null;
+  emotion: EmotionState | null;
 
   // metrics
   latencyMs: number;
@@ -62,6 +79,9 @@ interface SimulatorState {
   setRecognized: (text: string, confidence: number) => void;
   appendTts: (item: TtsHistoryItem) => void;
 
+  setAlert: (a: AlertState | null) => void;
+  setEmotion: (e: EmotionState) => void;
+
   setLatency: (ms: number) => void;
   reset: () => void;
 }
@@ -79,6 +99,8 @@ const initial = {
   recognized: "",
   recognizedConfidence: 0,
   ttsHistory: [],
+  alert: null,
+  emotion: null,
   latencyMs: 0,
 };
 
@@ -102,6 +124,9 @@ export const useSimulatorStore = create<SimulatorState>()(
       set({ recognized, recognizedConfidence }),
     appendTts: (item) =>
       set((s) => ({ ttsHistory: [item, ...s.ttsHistory.slice(0, 4)] })),
+
+    setAlert: (alert) => set({ alert }),
+    setEmotion: (emotion) => set({ emotion }),
 
     setLatency: (latencyMs) => set({ latencyMs }),
     reset: () => set(initial),

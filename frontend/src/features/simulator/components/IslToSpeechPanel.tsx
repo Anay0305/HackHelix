@@ -8,6 +8,7 @@ import {
   X,
   Film,
   Image as ImageIcon,
+  Bell,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Progress } from "@/components/ui/Progress";
@@ -18,12 +19,53 @@ import { shortId, formatTime } from "@/lib/format";
 
 type InputMode = "live" | "video" | "photo";
 
+const ALERT_ICONS: Record<string, string> = {
+  fire_alarm: "🔥",
+  doorbell:   "🔔",
+  horn:       "📯",
+  siren:      "🚨",
+  phone:      "📞",
+  alarm:      "⚠️",
+  bell:       "🔔",
+};
+
+function AlertBanner() {
+  const alert = useSimulatorStore((s) => s.alert);
+  if (!alert) return null;
+
+  return (
+    <motion.div
+      key={alert.seenAt}
+      initial={{ opacity: 0, y: -16 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/40"
+      role="alert"
+    >
+      <Bell className="h-5 w-5 text-amber-400 shrink-0" aria-hidden />
+      <span className="text-xl" aria-hidden>{ALERT_ICONS[alert.alertType] ?? "⚠️"}</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-amber-200 font-space-grotesk capitalize">
+          {alert.alertType.replace("_", " ")} detected
+        </p>
+        <p className="text-[11px] text-amber-400/80 font-inter">
+          {alert.label} · {Math.round(alert.confidence * 100)}% confidence
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
 export function IslToSpeechPanel() {
   const [inputMode, setInputMode] = useState<InputMode>("live");
 
   return (
     <div className="flex flex-col gap-5 h-full">
       <ModeToggle value={inputMode} onChange={setInputMode} />
+
+      <AnimatePresence>
+        <AlertBanner />
+      </AnimatePresence>
 
       <div className="flex-1 min-h-0 flex flex-col gap-5">
         {inputMode === "live" && <LiveCameraMode />}

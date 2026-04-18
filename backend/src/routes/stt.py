@@ -36,7 +36,7 @@ async def stt_websocket(
     dg_connection.on(LiveTranscriptionEvents.Error, on_error)
 
     options = LiveOptions(
-        model="nova-2",
+        model="nova-3",
         language="en-IN",
         encoding="linear16",
         sample_rate=sampleRate,
