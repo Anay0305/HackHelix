@@ -47,7 +47,7 @@ export function MobileNav() {
               aria-label={item.label}
               className={({ isActive }) =>
                 cn(
-                  "flex flex-col items-center justify-center gap-1 py-2.5 text-[11px] font-medium font-inter transition-colors focus-ring",
+                  "flex flex-col items-center justify-center gap-0.5 pt-2 pb-2 transition-colors focus-ring",
                   isActive ? "text-white" : "text-zinc-500",
                 )
               }
@@ -56,19 +56,21 @@ export function MobileNav() {
                 <>
                   <div
                     className={cn(
-                      "h-10 w-10 grid place-items-center rounded-full transition-all",
+                      "h-12 w-12 grid place-items-center rounded-2xl transition-all",
                       isActive
-                        ? "bg-gradient-to-br from-[#8B5CF6] to-[#C05177] text-white shadow-[0_4px_14px_rgba(139,92,246,0.4)]"
+                        ? "bg-gradient-to-br from-[#8B5CF6] to-[#C05177] text-white shadow-[0_6px_20px_rgba(139,92,246,0.45)]"
                         : "text-zinc-500",
                     )}
                   >
                     <item.icon
-                      className="h-5 w-5"
-                      strokeWidth={2}
+                      className="h-7 w-7"
+                      strokeWidth={2.2}
                       aria-hidden
                     />
                   </div>
-                  <span>{item.label}</span>
+                  <span className="text-[9px] uppercase tracking-wider font-medium font-inter">
+                    {item.label}
+                  </span>
                 </>
               )}
             </NavLink>

@@ -6,4 +6,6 @@ export const env = {
     import.meta.env.VITE_WS_URL ??
     `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws/simulator`,
   isDev: import.meta.env.DEV,
+  rpmAvatarUrl:
+    (import.meta.env.VITE_RPM_AVATAR_URL as string | undefined) || undefined,
 };

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { Check, ArrowRight, Globe2, Bell, Cpu } from "lucide-react";
+import { Check, ArrowRight, Globe2, Sparkles, Cpu } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Progress } from "@/components/ui/Progress";
@@ -168,7 +168,7 @@ export function ProfileSetupPage() {
           {step === 3 && (
             <div>
               <StepHeader
-                icon={<Bell className="h-5 w-5" />}
+                icon={<Sparkles className="h-5 w-5" />}
                 title="Notifications"
                 subtitle="Change any time in Settings."
                 tone="amber"

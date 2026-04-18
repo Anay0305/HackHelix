@@ -1,4 +1,4 @@
-import { Bell, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { useLearningStore } from "@/store";
 import { Badge } from "@/components/ui/Badge";
 
@@ -49,17 +49,6 @@ export function TopBar({ title, subtitle, actions }: TopBarProps) {
         >
           <Search className="h-4 w-4" />
         </button>
-        <button
-          aria-label="Notifications"
-          className="h-10 w-10 inline-flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-white/5 relative focus-ring"
-        >
-          <Bell className="h-4 w-4" />
-          <span
-            aria-hidden
-            className="absolute top-2 right-2 h-1.5 w-1.5 rounded-full bg-brand-rose ring-2 ring-surface"
-          />
-        </button>
-
         {actions}
       </div>
     </header>

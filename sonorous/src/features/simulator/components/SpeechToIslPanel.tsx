@@ -17,6 +17,7 @@ import { useSimulatorStore } from "@/store/simulatorStore";
 import { useMicCapture } from "../hooks/useMicCapture";
 import { getSocket } from "@/api/socket";
 import { shortId } from "@/lib/format";
+import { AvatarStage } from "./avatar/AvatarStage";
 
 type InputMode = "text" | "voice" | "media";
 
@@ -41,6 +42,11 @@ export function SpeechToIslPanel() {
         {inputMode === "text" && <TextMode />}
         {inputMode === "voice" && <VoiceMode />}
         {inputMode === "media" && <MediaMode />}
+
+        <div className="h-64 md:h-72 shrink-0" aria-label="Avatar output stage">
+          <AvatarStage />
+        </div>
+
         <OutputSection />
       </div>
     </div>
@@ -56,12 +62,20 @@ function ModeToggle({
 }) {
   const options: { value: InputMode; label: string; icon: React.ReactNode }[] =
     [
-      { value: "text", label: "Text", icon: <Type className="h-3.5 w-3.5" /> },
-      { value: "voice", label: "Voice", icon: <Mic className="h-3.5 w-3.5" /> },
+      {
+        value: "text",
+        label: "Text input",
+        icon: <Type className="h-6 w-6" strokeWidth={2.2} aria-hidden />,
+      },
+      {
+        value: "voice",
+        label: "Voice input",
+        icon: <Mic className="h-6 w-6" strokeWidth={2.2} aria-hidden />,
+      },
       {
         value: "media",
-        label: "Video / Photo",
-        icon: <Video className="h-3.5 w-3.5" />,
+        label: "Video or photo input",
+        icon: <Video className="h-6 w-6" strokeWidth={2.2} aria-hidden />,
       },
     ];
 
@@ -69,7 +83,7 @@ function ModeToggle({
     <div
       role="tablist"
       aria-label="English input mode"
-      className="inline-flex self-start p-1 rounded-full bg-white/5 backdrop-blur-md border border-white/10 font-inter"
+      className="inline-flex self-center gap-2 p-1.5 rounded-2xl bg-white/5 backdrop-blur-md border border-white/10"
     >
       {options.map((opt) => {
         const active = opt.value === value;
@@ -78,16 +92,17 @@ function ModeToggle({
             key={opt.value}
             role="tab"
             aria-selected={active}
+            aria-label={opt.label}
+            title={opt.label}
             onClick={() => onChange(opt.value)}
             className={cn(
-              "relative flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-medium transition-all duration-200 focus-ring",
+              "relative grid place-items-center h-14 w-14 rounded-xl transition-all duration-200 focus-ring",
               active
-                ? "bg-gradient-to-r from-[#8B5CF6] to-[#C05177] text-white shadow-[0_4px_14px_rgba(139,92,246,0.4)]"
-                : "text-zinc-400 hover:text-white",
+                ? "bg-gradient-to-br from-[#8B5CF6] to-[#C05177] text-white shadow-[0_6px_20px_rgba(139,92,246,0.45)]"
+                : "text-zinc-400 hover:text-white hover:bg-white/5 active:scale-95",
             )}
           >
             {opt.icon}
-            {opt.label}
           </button>
         );
       })}

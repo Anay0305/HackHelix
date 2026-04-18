@@ -47,17 +47,17 @@ function ModeToggle({
       {
         value: "live",
         label: "Live Camera",
-        icon: <Camera className="h-3.5 w-3.5" />,
+        icon: <Camera className="h-6 w-6" strokeWidth={2.2} aria-hidden />,
       },
       {
         value: "video",
         label: "Upload Video",
-        icon: <Film className="h-3.5 w-3.5" />,
+        icon: <Film className="h-6 w-6" strokeWidth={2.2} aria-hidden />,
       },
       {
         value: "photo",
         label: "Upload Photo",
-        icon: <ImageIcon className="h-3.5 w-3.5" />,
+        icon: <ImageIcon className="h-6 w-6" strokeWidth={2.2} aria-hidden />,
       },
     ];
 
@@ -65,7 +65,7 @@ function ModeToggle({
     <div
       role="tablist"
       aria-label="ISL input mode"
-      className="inline-flex self-start p-1 rounded-full bg-white/5 backdrop-blur-md border border-white/10 font-inter"
+      className="inline-flex self-center gap-2 p-1.5 rounded-2xl bg-white/5 backdrop-blur-md border border-white/10"
     >
       {options.map((opt) => {
         const active = opt.value === value;
@@ -74,16 +74,17 @@ function ModeToggle({
             key={opt.value}
             role="tab"
             aria-selected={active}
+            aria-label={opt.label}
+            title={opt.label}
             onClick={() => onChange(opt.value)}
             className={cn(
-              "relative flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-medium transition-all duration-200 focus-ring",
+              "relative grid place-items-center h-14 w-14 rounded-xl transition-all duration-200 focus-ring",
               active
-                ? "bg-gradient-to-r from-[#8B5CF6] to-[#C05177] text-white shadow-[0_4px_14px_rgba(139,92,246,0.4)]"
-                : "text-zinc-400 hover:text-white",
+                ? "bg-gradient-to-br from-[#8B5CF6] to-[#C05177] text-white shadow-[0_6px_20px_rgba(139,92,246,0.45)]"
+                : "text-zinc-400 hover:text-white hover:bg-white/5 active:scale-95",
             )}
           >
             {opt.icon}
-            {opt.label}
           </button>
         );
       })}
