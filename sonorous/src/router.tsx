@@ -1,7 +1,6 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { RootLayout } from "@/app/layouts/RootLayout";
 import { AuthLayout } from "@/app/layouts/AuthLayout";
-import { FullscreenLayout } from "@/app/layouts/FullscreenLayout";
 import { ProtectedRoute } from "@/app/ProtectedRoute";
 import { LandingPage } from "@/features/auth/pages/LandingPage";
 import { UdidLoginPage } from "@/features/auth/pages/UdidLoginPage";
@@ -31,7 +30,7 @@ export const router = createBrowserRouter([
     ],
   },
   {
-    element: <FullscreenLayout />,
+    element: <RootLayout />,
     children: [
       {
         path: "/simulator",
@@ -41,11 +40,6 @@ export const router = createBrowserRouter([
           </ProtectedRoute>
         ),
       },
-    ],
-  },
-  {
-    element: <RootLayout />,
-    children: [
       {
         path: "/learn",
         element: (

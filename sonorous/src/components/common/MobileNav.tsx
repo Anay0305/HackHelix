@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 import {
-  Radio,
+  Languages,
   GraduationCap,
   Landmark,
   Terminal,
@@ -16,7 +16,7 @@ interface NavItem {
 }
 
 const baseNav: NavItem[] = [
-  { to: "/simulator", label: "Translate", icon: Radio },
+  { to: "/simulator", label: "Translate", icon: Languages },
   { to: "/learn", label: "Learn", icon: GraduationCap },
   { to: "/benefits", label: "Benefits", icon: Landmark },
 ];
@@ -32,8 +32,12 @@ export function MobileNav() {
 
   return (
     <nav
-      aria-label="Primary"
-      className="md:hidden fixed bottom-0 inset-x-0 z-30 glass-subtle border-t border-white/5"
+      aria-label="Primary navigation"
+      className={cn(
+        "md:hidden fixed bottom-0 inset-x-0 z-30",
+        "bg-zinc-950/90 backdrop-blur-md border-t border-white/10",
+        "pb-[env(safe-area-inset-bottom)]",
+      )}
     >
       <ul className={cn("grid", cols)}>
         {nav.map((item) => (
@@ -43,8 +47,8 @@ export function MobileNav() {
               aria-label={item.label}
               className={({ isActive }) =>
                 cn(
-                  "flex flex-col items-center justify-center gap-1 py-3 text-[11px] font-medium transition-colors focus-ring",
-                  isActive ? "text-ink" : "text-muted",
+                  "flex flex-col items-center justify-center gap-1 py-2.5 text-[11px] font-medium font-inter transition-colors focus-ring",
+                  isActive ? "text-white" : "text-zinc-500",
                 )
               }
             >
@@ -52,14 +56,19 @@ export function MobileNav() {
                 <>
                   <div
                     className={cn(
-                      "h-8 w-8 grid place-items-center rounded-full transition-all",
-                      isActive &&
-                        "bg-brand-primary text-white shadow-[0_4px_14px_rgba(139,92,246,0.4)]",
+                      "h-10 w-10 grid place-items-center rounded-full transition-all",
+                      isActive
+                        ? "bg-gradient-to-br from-[#8B5CF6] to-[#C05177] text-white shadow-[0_4px_14px_rgba(139,92,246,0.4)]"
+                        : "text-zinc-500",
                     )}
                   >
-                    <item.icon className="h-4 w-4" />
+                    <item.icon
+                      className="h-5 w-5"
+                      strokeWidth={2}
+                      aria-hidden
+                    />
                   </div>
-                  {item.label}
+                  <span>{item.label}</span>
                 </>
               )}
             </NavLink>

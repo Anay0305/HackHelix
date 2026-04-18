@@ -14,7 +14,7 @@ export function SimulatorPage() {
   useSimulatorSocket();
 
   return (
-    <div className="flex flex-col h-[calc(100vh-57px)] bg-zinc-950 text-ink">
+    <div className="flex flex-col flex-1 min-h-0 bg-zinc-950 text-ink">
       {/* Controls bar */}
       <div className="flex items-center gap-3 px-4 md:px-6 py-3 border-b border-white/5 bg-zinc-950/80 backdrop-blur-md">
         <h1 className="text-sm font-semibold tracking-tight font-space-grotesk text-ink">
