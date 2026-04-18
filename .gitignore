@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.env
+*.env
+
+# Node
+node_modules/
+.next/
+dist/
+build/
+.cache/
+
+# Env files (keep .example and .development/.production but not secrets)
+backend/.env
+frontend/.env.local
+frontend-old/.env.local
+
+# Misc
+.DS_Store
+*.log
+.idea/
+.vscode/
+*.swp
+
+# Large data files
+backend/data/pose_db.json
+datasets/
+
+# Public key files / certs
+*.pem
+*.key

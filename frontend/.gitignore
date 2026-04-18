@@ -1,0 +1,23 @@
+node_modules
+dist
+dist-ssr
+*.local
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# Emitted JS from tsc --build on config files
+vite.config.js
+vite.config.d.ts
+
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+*.log
+.env.local
+.env.*.local
+
+# MSW service worker is generated, not committed
+# public/mockServiceWorker.js
