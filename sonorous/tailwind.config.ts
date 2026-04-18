@@ -70,6 +70,20 @@ const config: Config = {
           "system-ui",
           "sans-serif",
         ],
+        "space-grotesk": [
+          "Space Grotesk",
+          "Inter",
+          "system-ui",
+          "sans-serif",
+        ],
+        inter: [
+          "Inter",
+          "system-ui",
+          "-apple-system",
+          "Segoe UI",
+          "Roboto",
+          "sans-serif",
+        ],
         mono: [
           "JetBrains Mono",
           "ui-monospace",

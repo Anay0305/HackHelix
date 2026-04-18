@@ -1,6 +1,14 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, CameraOff, Volume2 } from "lucide-react";
+import {
+  Camera,
+  CameraOff,
+  Volume2,
+  UploadCloud,
+  X,
+  Film,
+  Image as ImageIcon,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Progress } from "@/components/ui/Progress";
 import { useSimulatorStore } from "@/store/simulatorStore";
@@ -8,13 +16,85 @@ import { useWebcamCapture } from "../hooks/useWebcamCapture";
 import { getSocket } from "@/api/socket";
 import { shortId, formatTime } from "@/lib/format";
 
+type InputMode = "live" | "video" | "photo";
+
 export function IslToSpeechPanel() {
+  const [inputMode, setInputMode] = useState<InputMode>("live");
+
+  return (
+    <div className="flex flex-col gap-5 h-full">
+      <ModeToggle value={inputMode} onChange={setInputMode} />
+
+      <div className="flex-1 min-h-0 flex flex-col gap-5">
+        {inputMode === "live" && <LiveCameraMode />}
+        {inputMode === "video" && <UploadMode accept="video/*" kind="video" />}
+        {inputMode === "photo" && <UploadMode accept="image/*" kind="photo" />}
+        <OutputSection />
+      </div>
+    </div>
+  );
+}
+
+function ModeToggle({
+  value,
+  onChange,
+}: {
+  value: InputMode;
+  onChange: (v: InputMode) => void;
+}) {
+  const options: { value: InputMode; label: string; icon: React.ReactNode }[] =
+    [
+      {
+        value: "live",
+        label: "Live Camera",
+        icon: <Camera className="h-3.5 w-3.5" />,
+      },
+      {
+        value: "video",
+        label: "Upload Video",
+        icon: <Film className="h-3.5 w-3.5" />,
+      },
+      {
+        value: "photo",
+        label: "Upload Photo",
+        icon: <ImageIcon className="h-3.5 w-3.5" />,
+      },
+    ];
+
+  return (
+    <div
+      role="tablist"
+      aria-label="ISL input mode"
+      className="inline-flex self-start p-1 rounded-full bg-white/5 backdrop-blur-md border border-white/10 font-inter"
+    >
+      {options.map((opt) => {
+        const active = opt.value === value;
+        return (
+          <button
+            key={opt.value}
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(opt.value)}
+            className={cn(
+              "relative flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-medium transition-all duration-200 focus-ring",
+              active
+                ? "bg-gradient-to-r from-[#8B5CF6] to-[#C05177] text-white shadow-[0_4px_14px_rgba(139,92,246,0.4)]"
+                : "text-zinc-400 hover:text-white",
+            )}
+          >
+            {opt.icon}
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function LiveCameraMode() {
   const webcam = useWebcamCapture();
   const isLive = useSimulatorStore((s) => s.isLive);
   const setIsLive = useSimulatorStore((s) => s.setIsLive);
-  const recognized = useSimulatorStore((s) => s.recognized);
-  const confidence = useSimulatorStore((s) => s.recognizedConfidence);
-  const ttsHistory = useSimulatorStore((s) => s.ttsHistory);
   const setSessionId = useSimulatorStore((s) => s.setSessionId);
 
   useEffect(() => {
@@ -40,16 +120,23 @@ export function IslToSpeechPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-5 h-full text-ink">
+    <section
+      aria-label="Live camera input"
+      className="flex flex-col gap-4 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5"
+    >
       <div className="flex items-center justify-center">
-        <CameraButton active={webcam.isActive} onClick={isLive ? stop : start} />
+        <CameraButton
+          active={webcam.isActive}
+          onClick={isLive ? stop : start}
+        />
       </div>
 
-      {/* Webcam preview */}
       <div
         className={cn(
-          "relative aspect-video rounded-xl2 overflow-hidden border",
-          isLive ? "border-brand-purple/60 shadow-glow-brand" : "border-white/10",
+          "relative aspect-video rounded-xl overflow-hidden border",
+          isLive
+            ? "border-[#8B5CF6]/60 shadow-[0_0_40px_rgba(139,92,246,0.35),0_0_80px_rgba(192,81,119,0.18)]"
+            : "border-white/10",
         )}
       >
         <video
@@ -64,29 +151,202 @@ export function IslToSpeechPanel() {
           aria-label="Your webcam preview"
         />
         {!webcam.isActive && (
-          <div className="absolute inset-0 grid place-items-center glass-subtle">
+          <div className="absolute inset-0 grid place-items-center bg-zinc-950/80 backdrop-blur-sm">
             <div className="text-center">
               <Camera
-                className="h-8 w-8 mx-auto mb-2 text-muted opacity-60"
+                className="h-8 w-8 mx-auto mb-2 text-zinc-500 opacity-60"
                 aria-hidden
               />
-              <p className="text-xs text-muted">Camera off</p>
+              <p className="text-xs text-zinc-500 font-inter">Camera off</p>
             </div>
           </div>
         )}
         {webcam.isActive && <LandmarkOverlay />}
       </div>
 
-      {/* Recognition output */}
+      {webcam.error && (
+        <p role="alert" className="text-xs text-[#C05177] font-inter">
+          Camera: {webcam.error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function UploadMode({
+  accept,
+  kind,
+}: {
+  accept: string;
+  kind: "video" | "photo";
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const setSessionId = useSimulatorStore((s) => s.setSessionId);
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  function onFiles(files: FileList | null) {
+    const f = files?.[0];
+    if (!f) return;
+    const ok =
+      kind === "video" ? f.type.startsWith("video/") : f.type.startsWith("image/");
+    if (!ok) return;
+    setFile(f);
+  }
+
+  function handleAnalyze() {
+    if (!file) return;
+    const id = `sess-${shortId()}`;
+    setSessionId(id);
+    getSocket().send({ type: "start", mode: "isl2speech", sessionId: id });
+    getSocket().send({
+      type: kind === "video" ? "video" : "photo",
+      mode: "isl2speech",
+      sessionId: id,
+      payload: { name: file.name, size: file.size, mime: file.type },
+    } as never);
+  }
+
+  return (
+    <section
+      aria-label={`${kind === "video" ? "Video" : "Photo"} upload`}
+      className="flex flex-col gap-3 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5 font-inter"
+    >
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 font-space-grotesk">
+        {kind === "video" ? "Upload Sign Video" : "Upload Sign Photo"}
+      </p>
+
+      {!file ? (
+        <label
+          htmlFor={`isl-upload-${kind}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            onFiles(e.dataTransfer.files);
+          }}
+          className={cn(
+            "relative grid place-items-center rounded-xl cursor-pointer transition-all",
+            "border-2 border-dashed aspect-video",
+            dragging
+              ? "border-[#8B5CF6] bg-gradient-to-br from-[#8B5CF6]/10 to-[#C05177]/10"
+              : "border-white/15 bg-zinc-950/40 hover:border-white/25 hover:bg-zinc-950/60",
+          )}
+        >
+          <input
+            id={`isl-upload-${kind}`}
+            type="file"
+            accept={accept}
+            onChange={(e) => onFiles(e.target.files)}
+            className="sr-only"
+          />
+          <div className="text-center px-6">
+            <div
+              className={cn(
+                "mx-auto mb-3 h-12 w-12 rounded-full grid place-items-center transition-all",
+                dragging
+                  ? "bg-gradient-to-br from-[#8B5CF6] to-[#C05177] shadow-[0_6px_24px_rgba(139,92,246,0.45)]"
+                  : "bg-white/5 border border-white/10",
+              )}
+            >
+              <UploadCloud
+                className={cn(
+                  "h-6 w-6",
+                  dragging ? "text-white" : "text-zinc-400",
+                )}
+                aria-hidden
+              />
+            </div>
+            <p className="text-sm font-medium text-ink font-space-grotesk">
+              Drop your {kind === "video" ? "sign video" : "sign photo"}
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              or click to browse ·{" "}
+              {kind === "video" ? "MP4, MOV, WebM" : "JPG, PNG, WEBP"}
+            </p>
+          </div>
+        </label>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div className="relative rounded-xl overflow-hidden border border-white/10 bg-black">
+            {kind === "video" ? (
+              <video
+                src={previewUrl ?? undefined}
+                controls
+                className="w-full aspect-video object-contain bg-black"
+              />
+            ) : (
+              <img
+                src={previewUrl ?? undefined}
+                alt="Upload preview"
+                className="w-full aspect-video object-contain bg-black"
+              />
+            )}
+            <button
+              onClick={() => setFile(null)}
+              aria-label="Remove upload"
+              className="absolute top-2 right-2 h-8 w-8 rounded-full bg-black/70 backdrop-blur text-white grid place-items-center hover:bg-black/90 focus-ring"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+            <div className="absolute bottom-2 left-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/70 backdrop-blur text-[11px] text-white">
+              {kind === "video" ? (
+                <Film className="h-3 w-3" aria-hidden />
+              ) : (
+                <ImageIcon className="h-3 w-3" aria-hidden />
+              )}
+              {file.name}
+            </div>
+          </div>
+          <button
+            onClick={handleAnalyze}
+            className={cn(
+              "self-end inline-flex items-center gap-2 px-5 py-2 rounded-full text-sm font-semibold font-space-grotesk",
+              "bg-gradient-to-r from-[#8B5CF6] to-[#C05177] text-white",
+              "shadow-[0_6px_20px_rgba(139,92,246,0.4)]",
+              "transition-all focus-ring",
+              "hover:shadow-[0_8px_28px_rgba(192,81,119,0.5)] active:scale-95",
+            )}
+          >
+            <Volume2 className="h-4 w-4" aria-hidden />
+            Analyze & Speak
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function OutputSection() {
+  const recognized = useSimulatorStore((s) => s.recognized);
+  const confidence = useSimulatorStore((s) => s.recognizedConfidence);
+  const ttsHistory = useSimulatorStore((s) => s.ttsHistory);
+
+  return (
+    <div className="flex flex-col gap-4 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5">
       <section
         aria-label="Recognized speech"
-        className="rounded-lg glass p-4 space-y-3"
+        className="rounded-xl bg-zinc-950/60 border border-white/5 p-4 space-y-3"
       >
         <div className="flex items-center justify-between text-xs">
-          <span className="font-semibold uppercase tracking-wider text-muted">
+          <span className="font-semibold uppercase tracking-wider text-zinc-400 font-space-grotesk">
             Recognized
           </span>
-          <span className="font-mono text-muted">
+          <span className="font-mono text-zinc-500">
             {Math.round(confidence * 100)}%
           </span>
         </div>
@@ -94,23 +354,22 @@ export function IslToSpeechPanel() {
           value={confidence}
           color={confidence >= 0.75 ? "emerald" : "amber"}
         />
-        <p className="text-base font-medium min-h-[1.5em]">
+        <p className="text-base font-medium min-h-[1.5em] font-inter">
           {recognized || (
-            <span className="text-muted italic font-normal">
+            <span className="text-zinc-500 italic font-normal">
               Sign to see the recognised sentence here.
             </span>
           )}
         </p>
       </section>
 
-      {/* History */}
       <section aria-label="Spoken utterance history">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted mb-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2 font-space-grotesk">
           Voice History
         </p>
-        <div className="rounded-lg glass divide-y divide-white/5 max-h-44 overflow-y-auto scrollbar-thin">
+        <div className="rounded-xl bg-zinc-950/60 border border-white/5 divide-y divide-white/5 max-h-44 overflow-y-auto scrollbar-thin">
           {ttsHistory.length === 0 ? (
-            <p className="p-4 text-xs text-muted italic">
+            <p className="p-4 text-xs text-zinc-500 italic font-inter">
               Spoken utterances appear here.
             </p>
           ) : (
@@ -124,12 +383,12 @@ export function IslToSpeechPanel() {
                   className="flex items-start gap-3 px-4 py-2.5"
                 >
                   <Volume2
-                    className="h-4 w-4 mt-0.5 text-brand-purple shrink-0"
+                    className="h-4 w-4 mt-0.5 text-[#8B5CF6] shrink-0"
                     aria-hidden
                   />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm truncate">{h.text}</p>
-                    <p className="text-[11px] text-muted">
+                  <div className="flex-1 min-w-0 font-inter">
+                    <p className="text-sm truncate text-ink">{h.text}</p>
+                    <p className="text-[11px] text-zinc-500">
                       {formatTime(h.timestampMs)}
                     </p>
                   </div>
@@ -139,12 +398,6 @@ export function IslToSpeechPanel() {
           )}
         </div>
       </section>
-
-      {webcam.error && (
-        <p role="alert" className="text-xs text-brand-rose">
-          Camera: {webcam.error}
-        </p>
-      )}
     </div>
   );
 }
@@ -159,29 +412,33 @@ function CameraButton({
   return (
     <button
       onClick={onClick}
-      aria-label={active ? "Stop sign-to-speech translation" : "Start sign-to-speech translation"}
+      aria-label={
+        active
+          ? "Stop sign-to-speech translation"
+          : "Start sign-to-speech translation"
+      }
       aria-pressed={active}
       className={cn(
-        "relative h-24 w-24 rounded-full grid place-items-center transition-all p-4 focus-ring",
+        "relative h-20 w-20 rounded-full grid place-items-center transition-all p-4 focus-ring",
         active
-          ? "bg-brand-primary text-white shadow-[0_12px_40px_rgba(139,92,246,0.55)]"
+          ? "bg-gradient-to-br from-[#8B5CF6] to-[#C05177] text-white shadow-[0_12px_40px_rgba(139,92,246,0.55)]"
           : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white border border-white/10 active:scale-95",
       )}
     >
       {active ? (
-        <Camera className="h-9 w-9" aria-hidden strokeWidth={2.2} />
+        <Camera className="h-8 w-8" aria-hidden strokeWidth={2.2} />
       ) : (
-        <CameraOff className="h-9 w-9" aria-hidden strokeWidth={2.2} />
+        <CameraOff className="h-8 w-8" aria-hidden strokeWidth={2.2} />
       )}
       {active && (
         <>
           <span
             aria-hidden
-            className="absolute inset-0 rounded-full border-2 border-brand-primary/70 animate-pulse-ring"
+            className="absolute inset-0 rounded-full border-2 border-[#8B5CF6]/70 animate-pulse-ring"
           />
           <span
             aria-hidden
-            className="absolute inset-0 rounded-full border border-brand-tertiary/50 scale-110"
+            className="absolute inset-0 rounded-full border border-[#C05177]/50 scale-110"
           />
         </>
       )}
@@ -231,4 +488,3 @@ function LandmarkOverlay() {
     </svg>
   );
 }
-

@@ -1,12 +1,24 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, MicOff, Sparkles } from "lucide-react";
+import {
+  Mic,
+  MicOff,
+  Sparkles,
+  Send,
+  UploadCloud,
+  Film,
+  X,
+  Type,
+  Video,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Badge } from "@/components/ui/Badge";
 import { useSimulatorStore } from "@/store/simulatorStore";
 import { useMicCapture } from "../hooks/useMicCapture";
 import { getSocket } from "@/api/socket";
 import { shortId } from "@/lib/format";
+
+type InputMode = "text" | "voice" | "media";
 
 const sentimentVariants: Record<
   string,
@@ -19,13 +31,150 @@ const sentimentVariants: Record<
 };
 
 export function SpeechToIslPanel() {
+  const [inputMode, setInputMode] = useState<InputMode>("voice");
+
+  return (
+    <div className="flex flex-col gap-5 h-full">
+      <ModeToggle value={inputMode} onChange={setInputMode} />
+
+      <div className="flex-1 min-h-0 flex flex-col gap-5">
+        {inputMode === "text" && <TextMode />}
+        {inputMode === "voice" && <VoiceMode />}
+        {inputMode === "media" && <MediaMode />}
+        <OutputSection />
+      </div>
+    </div>
+  );
+}
+
+function ModeToggle({
+  value,
+  onChange,
+}: {
+  value: InputMode;
+  onChange: (v: InputMode) => void;
+}) {
+  const options: { value: InputMode; label: string; icon: React.ReactNode }[] =
+    [
+      { value: "text", label: "Text", icon: <Type className="h-3.5 w-3.5" /> },
+      { value: "voice", label: "Voice", icon: <Mic className="h-3.5 w-3.5" /> },
+      {
+        value: "media",
+        label: "Video / Photo",
+        icon: <Video className="h-3.5 w-3.5" />,
+      },
+    ];
+
+  return (
+    <div
+      role="tablist"
+      aria-label="English input mode"
+      className="inline-flex self-start p-1 rounded-full bg-white/5 backdrop-blur-md border border-white/10 font-inter"
+    >
+      {options.map((opt) => {
+        const active = opt.value === value;
+        return (
+          <button
+            key={opt.value}
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(opt.value)}
+            className={cn(
+              "relative flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-medium transition-all duration-200 focus-ring",
+              active
+                ? "bg-gradient-to-r from-[#8B5CF6] to-[#C05177] text-white shadow-[0_4px_14px_rgba(139,92,246,0.4)]"
+                : "text-zinc-400 hover:text-white",
+            )}
+          >
+            {opt.icon}
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function TextMode() {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const setSessionId = useSimulatorStore((s) => s.setSessionId);
+
+  function handleSend() {
+    if (!text.trim() || sending) return;
+    setSending(true);
+    const id = `sess-${shortId()}`;
+    setSessionId(id);
+    getSocket().send({
+      type: "start",
+      mode: "speech2isl",
+      sessionId: id,
+    });
+    getSocket().send({
+      type: "text",
+      mode: "speech2isl",
+      sessionId: id,
+      payload: text.trim(),
+    } as never);
+    setTimeout(() => setSending(false), 400);
+  }
+
+  return (
+    <section
+      aria-label="Text input"
+      className="flex flex-col gap-3 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5 font-inter"
+    >
+      <label
+        htmlFor="text-input"
+        className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 font-space-grotesk"
+      >
+        Type in English
+      </label>
+      <textarea
+        id="text-input"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSend();
+        }}
+        placeholder="Type a sentence to translate into ISL…"
+        rows={5}
+        className={cn(
+          "w-full resize-none rounded-xl bg-zinc-950/60 border border-white/10 px-4 py-3",
+          "text-sm text-ink placeholder:text-zinc-500",
+          "focus:outline-none focus:border-[#8B5CF6]/60 focus:ring-2 focus:ring-[#8B5CF6]/25",
+          "transition-all",
+        )}
+      />
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-zinc-500 font-inter">
+          {text.length} chars · ⌘/Ctrl + Enter to send
+        </span>
+        <button
+          onClick={handleSend}
+          disabled={!text.trim() || sending}
+          aria-label="Send text for translation"
+          className={cn(
+            "inline-flex items-center gap-2 px-5 py-2 rounded-full text-sm font-semibold font-space-grotesk",
+            "bg-gradient-to-r from-[#8B5CF6] to-[#C05177] text-white",
+            "shadow-[0_6px_20px_rgba(139,92,246,0.4)]",
+            "transition-all focus-ring",
+            "disabled:opacity-40 disabled:cursor-not-allowed",
+            "hover:shadow-[0_8px_28px_rgba(192,81,119,0.5)] active:scale-95",
+          )}
+        >
+          <Send className="h-4 w-4" aria-hidden />
+          {sending ? "Sending…" : "Send"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function VoiceMode() {
   const mic = useMicCapture();
   const isLive = useSimulatorStore((s) => s.isLive);
   const setIsLive = useSimulatorStore((s) => s.setIsLive);
-  const transcripts = useSimulatorStore((s) => s.transcripts);
-  const glossTokens = useSimulatorStore((s) => s.glossTokens);
-  const sourceText = useSimulatorStore((s) => s.sourceText);
-  const sentiment = useSimulatorStore((s) => s.sentiment);
   const setSessionId = useSimulatorStore((s) => s.setSessionId);
   const sessionId = useSimulatorStore((s) => s.sessionId);
 
@@ -51,32 +200,161 @@ export function SpeechToIslPanel() {
     setSessionId(null);
   }
 
+  return (
+    <section
+      aria-label="Voice input"
+      className="flex flex-col items-center gap-5 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-6"
+    >
+      <MicButton
+        isLive={isLive}
+        level={mic.level}
+        onClick={isLive ? stop : start}
+      />
+      {sessionId && (
+        <p className="text-[11px] font-mono text-zinc-500">{sessionId}</p>
+      )}
+      <Waveform level={mic.level} active={isLive} />
+      {mic.error && (
+        <p role="alert" className="text-xs text-[#C05177] font-inter">
+          Microphone: {mic.error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function MediaMode() {
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  function onFiles(files: FileList | null) {
+    const f = files?.[0];
+    if (!f) return;
+    if (!f.type.startsWith("video/") && !f.type.startsWith("image/")) return;
+    setFile(f);
+  }
+
+  const isVideo = file?.type.startsWith("video/");
+
+  return (
+    <section
+      aria-label="Video or photo upload"
+      className="flex flex-col gap-3 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5 font-inter"
+    >
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 font-space-grotesk">
+        Upload Video or Photo
+      </p>
+
+      {!file ? (
+        <label
+          htmlFor="media-upload"
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            onFiles(e.dataTransfer.files);
+          }}
+          className={cn(
+            "relative grid place-items-center rounded-xl cursor-pointer transition-all",
+            "border-2 border-dashed aspect-video",
+            dragging
+              ? "border-[#8B5CF6] bg-gradient-to-br from-[#8B5CF6]/10 to-[#C05177]/10"
+              : "border-white/15 bg-zinc-950/40 hover:border-white/25 hover:bg-zinc-950/60",
+          )}
+        >
+          <input
+            ref={inputRef}
+            id="media-upload"
+            type="file"
+            accept="video/*,image/*"
+            onChange={(e) => onFiles(e.target.files)}
+            className="sr-only"
+          />
+          <div className="text-center px-6">
+            <div
+              className={cn(
+                "mx-auto mb-3 h-12 w-12 rounded-full grid place-items-center transition-all",
+                dragging
+                  ? "bg-gradient-to-br from-[#8B5CF6] to-[#C05177] shadow-[0_6px_24px_rgba(139,92,246,0.45)]"
+                  : "bg-white/5 border border-white/10",
+              )}
+            >
+              <UploadCloud
+                className={cn(
+                  "h-6 w-6",
+                  dragging ? "text-white" : "text-zinc-400",
+                )}
+                aria-hidden
+              />
+            </div>
+            <p className="text-sm font-medium text-ink font-space-grotesk">
+              Drop a video or photo
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              or click to browse · MP4, MOV, JPG, PNG
+            </p>
+          </div>
+        </label>
+      ) : (
+        <div className="relative rounded-xl overflow-hidden border border-white/10 bg-black">
+          {isVideo ? (
+            <video
+              src={previewUrl ?? undefined}
+              controls
+              className="w-full aspect-video object-contain bg-black"
+            />
+          ) : (
+            <img
+              src={previewUrl ?? undefined}
+              alt="Upload preview"
+              className="w-full aspect-video object-contain bg-black"
+            />
+          )}
+          <button
+            onClick={() => setFile(null)}
+            aria-label="Remove upload"
+            className="absolute top-2 right-2 h-8 w-8 rounded-full bg-black/70 backdrop-blur text-white grid place-items-center hover:bg-black/90 focus-ring"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+          <div className="absolute bottom-2 left-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/70 backdrop-blur text-[11px] text-white font-inter">
+            <Film className="h-3 w-3" aria-hidden />
+            {file.name}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function OutputSection() {
+  const transcripts = useSimulatorStore((s) => s.transcripts);
+  const glossTokens = useSimulatorStore((s) => s.glossTokens);
+  const sourceText = useSimulatorStore((s) => s.sourceText);
+  const sentiment = useSimulatorStore((s) => s.sentiment);
   const latest = transcripts[transcripts.length - 1];
 
   return (
-    <div className="flex flex-col gap-6 h-full text-ink">
-      {/* Mic button — icon-first, no descriptive text row */}
-      <div className="flex items-center justify-center">
-        <MicButton
-          isLive={isLive}
-          level={mic.level}
-          onClick={isLive ? stop : start}
-        />
-      </div>
-
-      {sessionId && (
-        <p className="text-center text-[11px] font-mono text-muted -mt-2">
-          {sessionId}
-        </p>
-      )}
-
-      {/* Waveform */}
-      <Waveform level={mic.level} active={isLive} />
-
-      {/* Transcript */}
+    <div className="flex flex-col gap-4 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5">
       <section aria-label="Live transcript" className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 font-space-grotesk">
             Transcript
           </p>
           {latest && (
@@ -85,7 +363,7 @@ export function SpeechToIslPanel() {
             </Badge>
           )}
         </div>
-        <div className="min-h-[60px] rounded-lg glass px-4 py-3 text-sm leading-relaxed">
+        <div className="min-h-[52px] rounded-xl bg-zinc-950/60 border border-white/5 px-4 py-3 text-sm font-inter">
           <AnimatePresence mode="wait">
             {latest ? (
               <motion.p
@@ -96,22 +374,21 @@ export function SpeechToIslPanel() {
               >
                 {latest.text}
                 {latest.partial && (
-                  <span className="animate-pulse text-brand-purple">…</span>
+                  <span className="animate-pulse text-[#8B5CF6]">…</span>
                 )}
               </motion.p>
             ) : (
-              <p className="text-muted italic">
-                Your speech appears here as you talk.
+              <p className="text-zinc-500 italic">
+                Your speech or text appears here.
               </p>
             )}
           </AnimatePresence>
         </div>
       </section>
 
-      {/* Gloss tokens */}
       <section aria-label="ISL gloss tokens" className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 font-space-grotesk">
             ISL Gloss · SOV reorder
           </p>
           {sentiment !== "neutral" && (
@@ -124,9 +401,9 @@ export function SpeechToIslPanel() {
             </Badge>
           )}
         </div>
-        <div className="min-h-[84px] rounded-lg glass px-4 py-3 border-brand-purple/20">
+        <div className="min-h-[72px] rounded-xl bg-zinc-950/60 border border-[#8B5CF6]/20 px-4 py-3">
           {glossTokens.length === 0 ? (
-            <p className="text-muted italic text-sm">
+            <p className="text-zinc-500 italic text-sm font-inter">
               Gloss tokens animate the avatar in order.
             </p>
           ) : (
@@ -137,7 +414,7 @@ export function SpeechToIslPanel() {
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.05 }}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-gradient-brand-soft border border-brand-purple/30 font-mono text-xs font-medium text-ink"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-gradient-to-r from-[#8B5CF6]/25 to-[#C05177]/25 border border-[#8B5CF6]/30 font-mono text-xs font-medium text-ink"
                 >
                   {t.gloss}
                 </motion.span>
@@ -146,20 +423,11 @@ export function SpeechToIslPanel() {
           )}
         </div>
         {sourceText && (
-          <p className="text-xs text-muted italic">
+          <p className="text-xs text-zinc-500 italic font-inter">
             &ldquo;{sourceText}&rdquo;
           </p>
         )}
       </section>
-
-      {mic.error && (
-        <p
-          role="alert"
-          className="text-xs text-brand-rose"
-        >
-          Microphone: {mic.error}
-        </p>
-      )}
     </div>
   );
 }
@@ -185,7 +453,7 @@ function MicButton({
       className={cn(
         "relative h-24 w-24 rounded-full grid place-items-center transition-all p-4 focus-ring",
         isLive
-          ? "bg-brand-primary text-white shadow-[0_12px_40px_rgba(139,92,246,0.55)]"
+          ? "bg-gradient-to-br from-[#8B5CF6] to-[#C05177] text-white shadow-[0_12px_40px_rgba(139,92,246,0.55)]"
           : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white border border-white/10 active:scale-95",
       )}
     >
@@ -198,12 +466,12 @@ function MicButton({
         <>
           <span
             aria-hidden
-            className="absolute inset-0 rounded-full border-2 border-brand-primary/70 animate-pulse-ring"
+            className="absolute inset-0 rounded-full border-2 border-[#8B5CF6]/70 animate-pulse-ring"
             style={{ transform: `scale(${1 + level * 0.6})` }}
           />
           <span
             aria-hidden
-            className="absolute inset-0 rounded-full border border-brand-tertiary/50"
+            className="absolute inset-0 rounded-full border border-[#C05177]/50"
             style={{ transform: `scale(${1.2 + level * 0.4})` }}
           />
         </>
@@ -217,7 +485,7 @@ function Waveform({ level, active }: { level: number; active: boolean }) {
   return (
     <div
       aria-hidden
-      className="flex items-end justify-between gap-[3px] h-12 px-2 rounded-lg glass"
+      className="flex w-full items-end justify-between gap-[3px] h-12 px-2 rounded-lg bg-zinc-950/60 border border-white/5"
     >
       {Array.from({ length: bars }).map((_, i) => {
         const phase = (Math.sin(Date.now() / 200 + i) + 1) / 2;
@@ -230,7 +498,7 @@ function Waveform({ level, active }: { level: number; active: boolean }) {
             className={cn(
               "w-1 rounded-full transition-all duration-100",
               active
-                ? "bg-gradient-to-t from-brand-purple to-brand-rose"
+                ? "bg-gradient-to-t from-[#8B5CF6] to-[#C05177]"
                 : "bg-white/10",
             )}
             style={{ height: `${h * 100}%` }}
