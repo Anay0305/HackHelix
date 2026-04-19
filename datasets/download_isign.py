@@ -20,6 +20,8 @@ GLOSS_WHITELIST: set[str] | None = {
     "HELLO", "ME", "YOU", "GOOD", "YES", "NO", "WANT", "HELP", "STOP",
     "UNDERSTAND", "WATER", "EAT", "SLEEP", "COME", "GO", "NAME", "WHAT",
     "THANK_YOU", "PLEASE", "KNOW", "NOT", "CAN", "WHERE", "HERE", "OKAY",
+    "HOW", "WHY", "WHO", "WHEN", "HAVE", "NEED", "FEEL", "SICK", "PAIN",
+    "DOCTOR", "HOSPITAL", "POLICE", "FIRE", "CALL",
 }
 
 
@@ -36,11 +38,12 @@ def download_video(url: str, dest: Path) -> bool:
 
 def main():
     print("Loading iSign word-prediction split from HuggingFace...")
-    # Config name may differ — check https://huggingface.co/datasets/Exploration-Lab/iSign
+    # iSign is a gated dataset — run `huggingface-cli login` first, or set HF_TOKEN env var.
+    # Also accept the dataset terms at: https://huggingface.co/datasets/Exploration-Lab/iSign
     try:
-        ds = load_dataset("Exploration-Lab/iSign", "Word_Prediction", split="train", trust_remote_code=True)
+        ds = load_dataset("Exploration-Lab/iSign", "Word_Prediction", split="train")
     except Exception:
-        ds = load_dataset("Exploration-Lab/iSign", split="train", trust_remote_code=True)
+        ds = load_dataset("Exploration-Lab/iSign", split="train")
 
     print(f"Dataset columns: {ds.column_names}")
     print(f"Total samples: {len(ds)}")

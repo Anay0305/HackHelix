@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Progress } from "@/components/ui/Progress";
 import { Badge } from "@/components/ui/Badge";
 import { AvatarStage } from "@/features/simulator/components/avatar/AvatarStage";
+import { HeartsBar } from "../components/HeartsBar";
 import { cn } from "@/lib/cn";
 import type { Exercise } from "@/api/types";
 
@@ -18,6 +19,9 @@ export function LessonPage() {
   const navigate = useNavigate();
   const completeLesson = useLearningStore((s) => s.completeLesson);
   const awardXp = useLearningStore((s) => s.awardXp);
+  const loseHeart = useLearningStore((s) => s.loseHeart);
+  const hearts = useLearningStore((s) => s.hearts);
+  const progressQuest = useLearningStore((s) => s.progressQuest);
 
   const { data: lessons } = useQuery({
     queryKey: ["curriculum"],
@@ -41,7 +45,21 @@ export function LessonPage() {
   const progress = (exerciseIdx + (finished ? 1 : 0)) / lesson.exercises.length;
 
   function onComplete(wasCorrect: boolean) {
-    if (wasCorrect) setCorrect((c) => [...c, exerciseIdx]);
+    // Per-drill quest + heart logic
+    progressQuest("drills", 1);
+    if (wasCorrect) {
+      progressQuest("highScore", 1);
+      setCorrect((c) => [...c, exerciseIdx]);
+    } else {
+      const had = loseHeart();
+      if (!had) {
+        toast.error("Out of hearts", {
+          description: "Hearts refill over time — try again soon.",
+        });
+        navigate("/learn");
+        return;
+      }
+    }
     if (exerciseIdx < lesson!.exercises.length - 1) {
       setExerciseIdx((i) => i + 1);
     } else {
@@ -79,6 +97,7 @@ export function LessonPage() {
             </div>
             <Progress value={progress} />
           </div>
+          <HeartsBar compact />
           <Badge variant="info">+{lesson.xpReward} XP</Badge>
         </div>
       </header>

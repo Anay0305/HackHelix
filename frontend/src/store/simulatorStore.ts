@@ -50,6 +50,8 @@ export interface ArmFrame {
   ls: ArmLandmark;
   le: ArmLandmark;
   lw: ArmLandmark;
+  rightHand: ArmLandmark[];
+  leftHand: ArmLandmark[];
 }
 
 export interface WordPose {

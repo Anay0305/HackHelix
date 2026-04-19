@@ -17,25 +17,52 @@ import numpy as np
 YAMNET_URL = "https://tfhub.dev/google/yamnet/1"
 
 # YAMNet display_name → (alertType, min_confidence)
+# Thresholds kept low (~0.1-0.25) because real-world audio off a laptop mic
+# rarely pushes YAMNet above 0.4 except on very clean signals. Safety-critical
+# classes (fire/siren) use slightly higher thresholds to reduce false alarms.
 _ALERT_MAP: dict[str, tuple[str, float]] = {
-    "Smoke detector, smoke alarm": ("fire_alarm", 0.40),
-    "Fire alarm":                  ("fire_alarm", 0.40),
-    "Alarm":                       ("alarm",      0.45),
-    "Doorbell":                    ("doorbell",   0.45),
-    "Ding-dong":                   ("doorbell",   0.50),
-    "Car horn, auto horn, motor horn, hooter": ("horn", 0.45),
-    "Honk":                        ("horn",       0.50),
-    "Siren":                       ("siren",      0.40),
-    "Ambulance (siren)":           ("siren",      0.40),
-    "Police car (siren)":          ("siren",      0.40),
-    "Fire engine, fire truck (siren)": ("siren", 0.40),
-    "Civil defense siren":         ("siren",      0.40),
-    "Bicycle bell":                ("bell",       0.55),
-    "Bell":                        ("bell",       0.55),
-    "Telephone":                   ("phone",      0.50),
-    "Ringtone":                    ("phone",      0.50),
-    "Telephone bell ringing":      ("phone",      0.45),
+    # Fire / smoke
+    "Smoke detector, smoke alarm": ("fire_alarm", 0.20),
+    "Fire alarm":                  ("fire_alarm", 0.20),
+    "Alarm":                       ("alarm",      0.15),
+    "Beep, bleep":                 ("alarm",      0.25),
+    "Buzzer":                      ("alarm",      0.20),
+    # Doorbell
+    "Doorbell":                    ("doorbell",   0.15),
+    "Ding-dong":                   ("doorbell",   0.20),
+    "Knock":                       ("doorbell",   0.20),
+    "Door":                        ("doorbell",   0.30),
+    # Vehicles
+    "Car horn, auto horn, motor horn, hooter": ("horn", 0.15),
+    "Honk":                        ("horn",       0.20),
+    "Vehicle horn, car horn, honking": ("horn",   0.15),
+    "Siren":                       ("siren",      0.20),
+    "Ambulance (siren)":           ("siren",      0.20),
+    "Police car (siren)":          ("siren",      0.20),
+    "Fire engine, fire truck (siren)": ("siren", 0.20),
+    "Civil defense siren":         ("siren",      0.20),
+    # Bells / phones
+    "Bicycle bell":                ("bell",       0.25),
+    "Bell":                        ("bell",       0.25),
+    "Ring":                        ("bell",       0.25),
+    "Telephone":                   ("phone",      0.20),
+    "Ringtone":                    ("phone",      0.20),
+    "Telephone bell ringing":      ("phone",      0.20),
+    "Cellphone":                   ("phone",      0.25),
+    # Voice / presence (useful for demo even if not "safety")
+    "Baby cry, infant cry":        ("baby_cry",   0.20),
+    "Crying, sobbing":             ("baby_cry",   0.25),
+    # Handclap / knock (pay-attention signals in a home)
+    "Clapping":                    ("bell",       0.30),
+    "Finger snapping":             ("bell",       0.35),
+    "Whistle":                     ("bell",       0.25),
+    "Whistling":                   ("bell",       0.25),
 }
+
+# When DEBUG is on, the service prints the top-5 predictions on every call —
+# invaluable for tuning thresholds without blind guessing.
+import os as _os
+_DEBUG = _os.getenv("YAMNET_DEBUG", "").lower() in ("1", "true")
 
 # ── lazy singletons ────────────────────────────────────────────────────────
 
@@ -79,10 +106,16 @@ def _load_model():
 
 # ── public API ─────────────────────────────────────────────────────────────
 
+def preload() -> None:
+    """Pre-warm the YAMNet model. Call once at app startup."""
+    if _TF_AVAILABLE:
+        _load_model()
+
+
 def detect_alert_sync(
     pcm16_bytes: bytes,
     src_sr: int = 48000,
-    threshold: float = 0.4,
+    threshold: float = 0.10,   # floor; per-class thresholds in _ALERT_MAP take precedence
 ) -> dict | None:
     """
     Run YAMNet on PCM16 audio and return the highest-confidence alert event.
@@ -117,11 +150,19 @@ def detect_alert_sync(
         # scores: (n_frames, 521) — average across time
         mean_scores = _tf.reduce_mean(scores, axis=0).numpy()
 
+        # Debug: print top-5 predictions so thresholds can be tuned from logs.
+        if _DEBUG:
+            top5 = np.argsort(mean_scores)[-5:][::-1]
+            parts = [f"{class_names[i]}:{mean_scores[i]:.2f}" for i in top5]
+            rms = float(np.sqrt(np.mean(samples ** 2)))
+            print(f"[yamnet] rms={rms:.4f} top5=[{', '.join(parts)}]")
+
         # Find the best matching alert class
         best: dict | None = None
         for idx, (alert_type, min_conf) in alert_indices.items():
             score = float(mean_scores[idx])
-            if score >= min_conf and score >= threshold:
+            effective = max(min_conf, threshold)
+            if score >= effective:
                 if best is None or score > best["confidence"]:
                     best = {
                         "alertType":  alert_type,

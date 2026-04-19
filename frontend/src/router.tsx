@@ -6,6 +6,9 @@ import { LandingPage } from "@/features/auth/pages/LandingPage";
 import { UdidLoginPage } from "@/features/auth/pages/UdidLoginPage";
 import { ProfileSetupPage } from "@/features/auth/pages/ProfileSetupPage";
 import { SimulatorPage } from "@/features/simulator/pages/SimulatorPage";
+import { SoundMonitorPage } from "@/features/soundMonitor/pages/SoundMonitorPage";
+import { CallLandingPage } from "@/features/call/pages/CallLandingPage";
+import { CallPage } from "@/features/call/pages/CallPage";
 import { LearnHomePage } from "@/features/learning/pages/LearnHomePage";
 import { LessonPage } from "@/features/learning/pages/LessonPage";
 import { BenefitsPage } from "@/features/benefits/pages/BenefitsPage";
@@ -37,6 +40,30 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <SimulatorPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "/monitor",
+        element: (
+          <ProtectedRoute>
+            <SoundMonitorPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "/call",
+        element: (
+          <ProtectedRoute>
+            <CallLandingPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "/call/:roomId",
+        element: (
+          <ProtectedRoute>
+            <CallPage />
           </ProtectedRoute>
         ),
       },

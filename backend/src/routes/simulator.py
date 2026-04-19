@@ -67,8 +67,10 @@ def _nmm_to_sentiment(nmm: str) -> str:
 
 
 def _extract_arm(frame: dict) -> dict:
-    """Extract the 6 arm landmarks from a SignFrame body array."""
+    """Extract arm landmarks + hand shapes (21 pts each) from a SignFrame."""
     b = frame["body"]
+    rh = frame.get("rightHand", [])
+    lh = frame.get("leftHand",  [])
     return {
         "rs": {"x": b[11]["x"], "y": b[11]["y"]},
         "re": {"x": b[13]["x"], "y": b[13]["y"]},
@@ -76,6 +78,8 @@ def _extract_arm(frame: dict) -> dict:
         "ls": {"x": b[12]["x"], "y": b[12]["y"]},
         "le": {"x": b[14]["x"], "y": b[14]["y"]},
         "lw": {"x": b[16]["x"], "y": b[16]["y"]},
+        "rightHand": [{"x": lm["x"], "y": lm["y"]} for lm in rh],
+        "leftHand":  [{"x": lm["x"], "y": lm["y"]} for lm in lh],
     }
 
 
@@ -146,6 +150,13 @@ async def simulator_websocket(ws: WebSocket):
 
         async def on_error(self, error, **kwargs):
             err_str = str(error)
+            # 1011 = Deepgram closes when no audio arrives in its window.
+            # "tasks cancelled" = asyncio cleanup on session teardown.
+            # Both are expected during normal session close — suppress them.
+            _NOISE = ("1011", "timeout window", "tasks cancelled", "ConnectionClosed")
+            if any(k in err_str for k in _NOISE):
+                print(f"[deepgram] session close: {err_str[:80]}")
+                return
             print(f"[deepgram] error: {err_str}")
             hint = ""
             if "401" in err_str:
@@ -218,6 +229,13 @@ async def simulator_websocket(ws: WebSocket):
                 frames = get_pose(word)
                 arm_frames = [_extract_arm(f) for f in frames]
                 word_poses.append({"word": word, "frames": arm_frames})
+
+            total_frames = sum(len(w["frames"]) for w in word_poses)
+            print(
+                f"[pose_seq] gloss={words} "
+                f"words={len(word_poses)} total_frames={total_frames} "
+                f"duration={total_frames * 400}ms"
+            )
             await send({
                 "type":       "pose_sequence",
                 "words":      word_poses,
@@ -255,9 +273,10 @@ async def simulator_websocket(ws: WebSocket):
 
     # ── isl2speech helpers ────────────────────────────────────────────────
 
-    async def flush_buffer():
+    async def flush_buffer(immediate: bool = False):
         nonlocal sign_buffer
-        await asyncio.sleep(SILENCE_TIMEOUT)
+        if not immediate:
+            await asyncio.sleep(SILENCE_TIMEOUT)
         if not sign_buffer:
             return
 
@@ -353,6 +372,17 @@ async def simulator_websocket(ws: WebSocket):
                     await send({"type": "error", "code": "audio_error", "msg": str(e)})
                 continue
 
+            # ── isl2speech: direct gloss text input ──────────────────────
+            if msg_type == "gloss_text" and mode == "isl2speech":
+                raw_gloss = (data.get("payload") or "").strip().upper()
+                if raw_gloss:
+                    tokens = [t for t in raw_gloss.split() if t]
+                    sign_buffer.extend(tokens)
+                    if flush_task and not flush_task.done():
+                        flush_task.cancel()
+                    flush_task = asyncio.create_task(flush_buffer(immediate=True))
+                continue
+
             # ── isl2speech: landmarks ─────────────────────────────────────
             if msg_type == "landmarks" and mode == "isl2speech":
                 frame = data.get("frame", {})
@@ -382,7 +412,7 @@ async def simulator_websocket(ws: WebSocket):
 
                 sign, conf = classify_sequence_scored(frame_window)
                 print(f"[isl2speech] classified={sign} conf={conf:.2f} buf={len(frame_window)} delta={delta:.3f}")
-                if not sign or conf < 0.45:
+                if not sign or conf < 0.30:
                     # Even if we reject the prediction, send a low-conf
                     # transcript every 2 s so the UI's RECOGNIZED bar reflects
                     # "camera seeing hand, not sure what sign yet" instead of

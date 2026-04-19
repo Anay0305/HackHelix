@@ -1,308 +1,239 @@
 """
-Simple ISL sign classifier using normalized hand landmark features.
+ISL sign classifier — rule-based extension ratios.
 
-Each sign is defined by a feature vector derived from:
-- Finger extension ratios (how open each finger is)
-- Inter-fingertip distances
-- Palm orientation (wrist-to-middle-MCP vector)
+Primary: finger-extension rules (thumb, index, middle, ring, pinky).
+These are robust to camera distance, lighting, and hand orientation because
+the features are ratios within the same normalized hand frame.
 
-For a hackathon demo this gives ~70% accuracy on clear signs.
-A real system would use DTW on full landmark sequences from iSign dataset.
+Fallback: cosine similarity on the same 5-extension feature for unknown shapes.
+
+MediaPipe hand indices:
+  0=wrist  1-4=thumb  5-8=index  9-12=middle  13-16=ring  17-20=pinky
+  MCP (knuckle base): 1, 5, 9, 13, 17
+  TIP (fingertip):    4, 8, 12, 16, 20
+  PIP (first joint):  3, 6, 10, 14, 18
 """
 
 import numpy as np
 from typing import Optional
 
-# Each landmark: [x, y, z] — 21 points per hand
-# MediaPipe indices:
-#   0=wrist, 1-4=thumb, 5-8=index, 9-12=middle, 13-16=ring, 17-20=pinky
-# MCP (knuckle) = 1st joint: 1,5,9,13,17
-# TIP           = last joint: 4,8,12,16,20
-
-FINGER_TIP_IDS  = [4, 8, 12, 16, 20]
-FINGER_MCP_IDS  = [2, 5, 9,  13, 17]
-FINGER_PIP_IDS  = [3, 6, 10, 14, 18]
-
-def _extract_features(landmarks: list[list[float]]) -> np.ndarray:
-    """Convert 21 landmark points into a compact feature vector."""
-    pts = np.array(landmarks, dtype=np.float32)  # (21, 3)
-
-    # Normalize: center on wrist, scale by hand size
-    wrist = pts[0]
-    pts = pts - wrist
-    scale = np.linalg.norm(pts[9] - pts[0]) + 1e-6  # middle MCP distance
-    pts = pts / scale
-
-    # Feature 1: finger extension (tip_y < pip_y means finger is raised in image space)
-    # We use the z-normalized distance from wrist to tip vs wrist to MCP
-    extensions = []
-    for tip, mcp in zip(FINGER_TIP_IDS, FINGER_MCP_IDS):
-        tip_dist = np.linalg.norm(pts[tip])
-        mcp_dist = np.linalg.norm(pts[mcp])
-        extensions.append(tip_dist / (mcp_dist + 1e-6))
-
-    # Feature 2: fingertip relative positions (x, y of each tip, normalized)
-    tip_positions = pts[FINGER_TIP_IDS, :2].flatten()  # 10 values
-
-    # Feature 3: thumb-index pinch distance
-    thumb_index_dist = np.linalg.norm(pts[4] - pts[8])
-
-    # Feature 4: palm normal (cross product of palm vectors)
-    v1 = pts[5] - pts[0]
-    v2 = pts[17] - pts[0]
-    normal = np.cross(v1[:3], v2[:3])
-    normal = normal / (np.linalg.norm(normal) + 1e-6)
-
-    return np.concatenate([
-        extensions,           # 5
-        tip_positions,        # 10
-        [thumb_index_dist],   # 1
-        normal,               # 3
-    ])  # total: 19
+FINGER_TIP_IDS = [4, 8, 12, 16, 20]   # thumb, index, middle, ring, pinky
+FINGER_MCP_IDS = [2, 5, 9,  13, 17]   # base knuckles
 
 
-# --- Sign Templates ---
-# These are approximate feature vectors for common ISL signs.
-# Values tuned for a frontal-facing hand view.
-# Format: {"GLOSS": feature_array}
-#
-# Real deployment: replace with centroids extracted from iSign dataset.
-
-def _make_open_hand():
-    """All fingers extended — base for several signs."""
-    return np.array([
-        # extensions (all fingers extended ~1.8)
-        1.8, 1.8, 1.8, 1.8, 1.8,
-        # tip positions (spread out)
-        -0.3, -0.9, -0.1, -1.0, 0.0, -1.1, 0.1, -1.0, 0.3, -0.9,
-        # thumb-index dist
-        0.5,
-        # palm normal (facing viewer)
-        0.0, 0.0, 1.0,
-    ], dtype=np.float32)
-
-def _make_fist():
-    """All fingers curled."""
-    return np.array([
-        1.0, 1.0, 1.0, 1.0, 1.0,
-        -0.1, -0.3, 0.0, -0.3, 0.0, -0.3, 0.1, -0.3, 0.2, -0.3,
-        0.1,
-        0.0, 0.0, 1.0,
-    ], dtype=np.float32)
-
-def _make_pointing():
-    """Index finger extended, rest curled — YOU / POINT sign."""
-    return np.array([
-        1.2, 1.9, 1.0, 1.0, 1.0,
-        -0.2, -0.4, 0.0, -1.0, 0.0, -0.3, 0.1, -0.3, 0.2, -0.3,
-        0.3,
-        0.0, 0.0, 1.0,
-    ], dtype=np.float32)
-
-def _make_me():
-    """Index pointing toward self (toward camera, slight inward)."""
-    return np.array([
-        1.2, 1.9, 1.0, 1.0, 1.0,
-        -0.1, -0.2, 0.0, -1.0, 0.0, -0.3, 0.1, -0.3, 0.2, -0.3,
-        0.3,
-        0.0, 0.3, 0.9,
-    ], dtype=np.float32)
-
-def _make_ok():
-    """Thumb and index pinching — OK / GOOD sign."""
-    return np.array([
-        1.1, 1.0, 1.7, 1.7, 1.7,
-        -0.1, -0.3, 0.1, -0.4, 0.0, -1.0, 0.1, -0.9, 0.3, -0.8,
-        0.05,
-        0.0, 0.0, 1.0,
-    ], dtype=np.float32)
-
-def _make_thumbs_up():
-    """Thumb up, rest curled."""
-    return np.array([
-        2.0, 1.0, 1.0, 1.0, 1.0,
-        -0.4, -0.9, 0.1, -0.3, 0.0, -0.3, 0.1, -0.3, 0.2, -0.3,
-        0.6,
-        0.0, 0.0, 1.0,
-    ], dtype=np.float32)
-
-def _make_v_sign():
-    """Index + middle extended (peace / V sign) — UNDERSTAND."""
-    return np.array([
-        1.2, 1.9, 1.9, 1.0, 1.0,
-        -0.2, -0.4, -0.05, -1.0, 0.05, -1.0, 0.1, -0.3, 0.2, -0.3,
-        0.35,
-        0.0, 0.0, 1.0,
-    ], dtype=np.float32)
-
-def _make_wave():
-    """All fingers extended but tilted — HELLO / WAVE."""
-    return np.array([
-        1.8, 1.8, 1.8, 1.8, 1.8,
-        -0.4, -0.8, -0.2, -1.0, -0.0, -1.1, 0.2, -1.0, 0.4, -0.8,
-        0.55,
-        0.2, 0.0, 0.98,
-    ], dtype=np.float32)
+def _normalize(landmarks: list[list[float]]) -> np.ndarray:
+    pts = np.array(landmarks, dtype=np.float32)   # (21, 3)
+    wrist = pts[0].copy()
+    pts -= wrist
+    scale = float(np.linalg.norm(pts[9] - pts[0])) + 1e-6   # middle-MCP dist
+    return pts / scale
 
 
-SIGN_TEMPLATES: dict[str, np.ndarray] = {
-    "HELLO":      _make_wave(),
-    "ME":         _make_me(),
-    "YOU":        _make_pointing(),
-    "GOOD":       _make_ok(),
-    "YES":        _make_thumbs_up(),
-    "NO":         _make_fist(),
-    "WANT":       _make_open_hand(),
-    "HELP":       _make_thumbs_up(),
-    "STOP":       _make_open_hand(),
-    "UNDERSTAND": _make_v_sign(),
-    "WATER":      _make_v_sign(),     # placeholder — should come from iSign
-    "EAT":        _make_fist(),       # placeholder
-    "SLEEP":      _make_open_hand(),  # placeholder
-    "COME":       _make_pointing(),   # placeholder
-    "GO":         _make_pointing(),   # placeholder
-    "NAME":       _make_v_sign(),     # placeholder
-    "WHAT":       _make_open_hand(),  # placeholder
-    "THANK_YOU":  _make_open_hand(),  # placeholder
-    "PLEASE":     _make_open_hand(),  # placeholder
-    "KNOW":       _make_pointing(),   # placeholder
-}
+def _extensions(pts: np.ndarray) -> np.ndarray:
+    """
+    5-element array: for each finger, ratio of tip-distance to MCP-distance
+    from the wrist (in normalized space).
 
-# Normalize all templates
-for k in SIGN_TEMPLATES:
-    v = SIGN_TEMPLATES[k]
-    SIGN_TEMPLATES[k] = v / (np.linalg.norm(v) + 1e-6)
+    > 1.5  → clearly extended
+    1.1–1.5 → partially extended
+    < 1.1  → curled
+    """
+    exts = []
+    for tip_i, mcp_i in zip(FINGER_TIP_IDS, FINGER_MCP_IDS):
+        t = float(np.linalg.norm(pts[tip_i]))
+        m = float(np.linalg.norm(pts[mcp_i])) + 1e-6
+        exts.append(t / m)
+    return np.array(exts, dtype=np.float32)   # [thumb, idx, mid, ring, pinky]
 
+
+def _pinch_dist(pts: np.ndarray) -> float:
+    """Thumb-tip to index-tip distance (normalized)."""
+    return float(np.linalg.norm(pts[4] - pts[8]))
+
+
+def _palm_y(pts: np.ndarray) -> float:
+    """Mean y of fingertip positions. Positive y = lower in image = curled."""
+    return float(np.mean(pts[FINGER_TIP_IDS, 1]))
+
+
+# ── Rule-based classifier ─────────────────────────────────────────────────────
+
+def _rule_classify(pts: np.ndarray) -> tuple[Optional[str], float]:
+    """
+    Returns (sign, confidence) using geometric rules on the normalized hand.
+    Confidence is a heuristic [0, 1] not a probability.
+    """
+    e = _extensions(pts)
+    thumb, idx, mid, ring, pinky = e
+    pinch = _pinch_dist(pts)
+
+    fingers_open  = [idx > 1.50, mid > 1.50, ring > 1.50, pinky > 1.50]
+    fingers_curled = [idx < 1.20, mid < 1.20, ring < 1.20, pinky < 1.20]
+    n_open   = sum(fingers_open)
+    n_curled = sum(fingers_curled)
+
+    # ── Open hand / HELLO / STOP (all four fingers extended) ─────────────────
+    if n_open >= 4 and thumb > 1.3:
+        return "HELLO", 0.82
+
+    if n_open >= 4:
+        return "STOP", 0.72
+
+    # ── Fist / YES / NO (all four fingers curled) ────────────────────────────
+    if n_curled >= 4 and thumb < 1.35:
+        return "YES", 0.75
+
+    # ── Pointing (index only extended) ───────────────────────────────────────
+    if idx > 1.55 and mid < 1.25 and ring < 1.25 and pinky < 1.25:
+        return "YOU", 0.80
+
+    # ── V-sign / UNDERSTAND (index + middle, ring + pinky curled) ────────────
+    if idx > 1.50 and mid > 1.50 and ring < 1.30 and pinky < 1.30:
+        return "UNDERSTAND", 0.78
+
+    # ── Thumbs-up (thumb extended, all fingers curled) ────────────────────────
+    if thumb > 1.60 and n_curled >= 4:
+        return "GOOD", 0.80
+
+    # ── OK / pinch (thumb–index very close, middle–pinky open) ───────────────
+    if pinch < 0.25 and mid > 1.40 and ring > 1.30:
+        return "OKAY", 0.75
+
+    # ── C-shape / WANT (all fingers curved, pinch ~medium) ───────────────────
+    if 0.30 < pinch < 0.65 and all(1.15 < x < 1.65 for x in [idx, mid, ring, pinky]):
+        return "WANT", 0.68
+
+    # ── Flat hand / THANK_YOU (fingers extended, close together) ─────────────
+    if n_open >= 3 and thumb < 1.4 and pinch > 0.40:
+        return "THANK_YOU", 0.65
+
+    # ── ME (pointing inward — index extended, palm faces self) ───────────────
+    if idx > 1.55 and mid < 1.30 and ring < 1.30 and thumb > 1.3:
+        return "ME", 0.65
+
+    # ── HELP (fist with thumb raised to side) ────────────────────────────────
+    if thumb > 1.50 and 2 <= n_curled <= 4:
+        return "HELP", 0.62
+
+    # ── WATER / two fingers (index + pinky, middle + ring curled) ─────────────
+    if idx > 1.50 and pinky > 1.50 and mid < 1.30 and ring < 1.30:
+        return "WATER", 0.70
+
+    # ── KNOW / flat hand touching head (coded same as flat) ──────────────────
+    if n_open >= 3 and not (mid > 1.50 and ring > 1.50 and pinky > 1.50):
+        return "KNOW", 0.55
+
+    return None, 0.0
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
 
 def classify_sign_scored(
     landmarks: list[list[float]],
 ) -> tuple[Optional[str], float]:
-    """Return (best_sign, cosine_score) for a single frame, or (None, 0.0)."""
+    """Return (sign, confidence) for a single frame."""
     if len(landmarks) < 21:
         return None, 0.0
-
-    features = _extract_features(landmarks)
-    norm = np.linalg.norm(features)
-    if norm < 1e-6:
-        return None, 0.0
-    features = features / norm
-
-    best_sign = None
-    best_score = -1.0
-
-    for sign, template in SIGN_TEMPLATES.items():
-        score = float(np.dot(features, template))
-        if score > best_score:
-            best_score = score
-            best_sign = sign
-
-    return best_sign, max(0.0, best_score)
+    pts = _normalize(landmarks)
+    return _rule_classify(pts)
 
 
 def classify_sign(
     landmarks: list[list[float]],
-    threshold: float = 0.82,
+    threshold: float = 0.60,
 ) -> Optional[str]:
-    """Single-frame cosine-similarity classifier. Returns label if confidence >= threshold."""
     sign, score = classify_sign_scored(landmarks)
     return sign if score >= threshold else None
 
 
-# ── LSTM sequence classifier ──────────────────────────────────────────────
-#
-# Loads backend/models/lstm_sign.h5 if present. Input: N × SEQ_LEN × feat_dim
-# float32. We lazy-load so the module stays importable when the model is
-# missing (tests, fresh checkouts).
+# ── Sequence classifier ───────────────────────────────────────────────────────
 
 import json as _json
 from pathlib import Path as _Path
 
 _LSTM_MODEL = None
 _LSTM_LABELS: list[str] = []
-_LSTM_ALIASES: dict[str, str] = {}   # any gloss → canonical label the model was trained on
 _LSTM_SEQ_LEN: int = 16
-_LSTM_FEAT_DIM: int = 19
+_LSTM_FEAT_DIM: int = 5
 _LSTM_LOAD_ATTEMPTED = False
 
 
 def _load_lstm():
-    global _LSTM_MODEL, _LSTM_LABELS, _LSTM_ALIASES, _LSTM_SEQ_LEN, _LSTM_FEAT_DIM, _LSTM_LOAD_ATTEMPTED
+    global _LSTM_MODEL, _LSTM_LABELS, _LSTM_SEQ_LEN, _LSTM_FEAT_DIM, _LSTM_LOAD_ATTEMPTED
     if _LSTM_LOAD_ATTEMPTED:
         return _LSTM_MODEL
     _LSTM_LOAD_ATTEMPTED = True
-
     models_dir = _Path(__file__).resolve().parent.parent.parent / "models"
-    h5 = models_dir / "lstm_sign.h5"
+    h5   = models_dir / "lstm_sign.h5"
     meta = models_dir / "lstm_labels.json"
     if not h5.exists() or not meta.exists():
         return None
-
     try:
-        import tensorflow as tf  # noqa
         from tensorflow.keras.models import load_model
         _LSTM_MODEL = load_model(str(h5), compile=False)
         info = _json.loads(meta.read_text())
-        _LSTM_LABELS = info["labels"]
-        _LSTM_ALIASES = info.get("aliases", {})
-        _LSTM_SEQ_LEN = int(info.get("seq_len", 16))
-        _LSTM_FEAT_DIM = int(info.get("feat_dim", 19))
+        _LSTM_LABELS   = info["labels"]
+        _LSTM_SEQ_LEN  = int(info.get("seq_len", 16))
+        _LSTM_FEAT_DIM = int(info.get("feat_dim", 5))
     except Exception as e:
         print(f"[sign_classifier] LSTM load failed: {e}")
         _LSTM_MODEL = None
     return _LSTM_MODEL
 
 
-def _normalize_seq(seq: list[list[list[float]]]) -> np.ndarray:
-    """Convert a list of per-frame 21-landmark arrays into an (SEQ_LEN, feat_dim) batch."""
-    feats = []
-    for frame in seq:
-        if len(frame) < 21:
-            continue
-        f = _extract_features(frame)
-        n = np.linalg.norm(f)
-        feats.append(f / n if n > 1e-6 else f)
-    if not feats:
-        return np.zeros((_LSTM_SEQ_LEN, _LSTM_FEAT_DIM), dtype=np.float32)
-
-    arr = np.stack(feats).astype(np.float32)
-    # resample to SEQ_LEN via even-step indexing
-    if len(arr) != _LSTM_SEQ_LEN:
-        idx = np.linspace(0, len(arr) - 1, _LSTM_SEQ_LEN).round().astype(int)
-        arr = arr[idx]
-    return arr
-
-
 def classify_sequence_scored(
     frames: list[list[list[float]]],
 ) -> tuple[Optional[str], float]:
-    """Return (label, confidence) for a landmark sequence.
+    """
+    Classify a rolling window of landmark frames.
 
     Strategy:
-      1. If LSTM model is loaded and confident (>=0.55), return its prediction.
-      2. Otherwise fall back to single-frame cosine matching on the median
-         (middle) frame of the window. Real MediaPipe features rarely match
-         the synthetic training distribution exactly, so cosine is the
-         safety net that still produces sensible gloss for common shapes.
+      1. LSTM if loaded and confident (>=0.55).
+      2. Majority vote across frames using the rule-based classifier.
+         Confidence = fraction of frames that agree on the top sign,
+         weighted by per-frame confidence.
     """
     if not frames:
         return None, 0.0
 
     model = _load_lstm()
     if model is not None:
-        x = _normalize_seq(frames)[None, ...]
-        probs = model.predict(x, verbose=0)[0]
-        top = int(np.argmax(probs))
-        conf = float(probs[top])
-        if conf >= 0.55:
-            return _LSTM_LABELS[top], conf
+        feats = []
+        for frame in frames:
+            if len(frame) < 21:
+                continue
+            pts = _normalize(frame)
+            feats.append(_extensions(pts))
+        if feats:
+            arr = np.stack(feats).astype(np.float32)
+            if len(arr) != _LSTM_SEQ_LEN:
+                idx = np.linspace(0, len(arr) - 1, _LSTM_SEQ_LEN).round().astype(int)
+                arr = arr[idx]
+            probs = model.predict(arr[None, ...], verbose=0)[0]
+            top   = int(np.argmax(probs))
+            conf  = float(probs[top])
+            if conf >= 0.55:
+                return _LSTM_LABELS[top], conf
 
-    mid = frames[len(frames) // 2]
-    return classify_sign_scored(mid)
+    # Majority vote over frames
+    votes: dict[str, float] = {}
+    for frame in frames:
+        sign, conf = classify_sign_scored(frame)
+        if sign and conf > 0:
+            votes[sign] = votes.get(sign, 0.0) + conf
+
+    if not votes:
+        return None, 0.0
+
+    best = max(votes, key=lambda k: votes[k])
+    # Normalise: avg confidence of the winning sign across all frames
+    avg_conf = votes[best] / len(frames)
+    return best, min(avg_conf, 0.95)
 
 
 def classify_sequence(
     frames: list[list[list[float]]],
-    threshold: float = 0.55,
+    threshold: float = 0.30,
 ) -> Optional[str]:
     label, conf = classify_sequence_scored(frames)
     return label if conf >= threshold else None

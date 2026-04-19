@@ -152,6 +152,7 @@ export type ClientMsg =
   | { type: "text"; payload: string }
   | { type: "audio_chunk"; seq: number; pcm16Base64: string }
   | { type: "landmarks"; seq: number; frame: HolisticFrame }
+  | { type: "gloss_text"; payload: string; sessionId: string }
   | { type: "stop" }
   | { type: "ping"; t: number };
 
@@ -201,6 +202,8 @@ export type ServerMsg =
       intensity: number;
       morphTargets: Record<string, number>;
     }
+  | { type: "partner_joined" }
+  | { type: "partner_left" }
   | {
       type: "pose_sequence";
       words: Array<{
@@ -212,6 +215,8 @@ export type ServerMsg =
           ls: { x: number; y: number };
           le: { x: number; y: number };
           lw: { x: number; y: number };
+          rightHand: Array<{ x: number; y: number }>;
+          leftHand: Array<{ x: number; y: number }>;
         }>;
       }>;
       msPerFrame: number;

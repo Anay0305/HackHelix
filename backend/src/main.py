@@ -98,11 +98,37 @@ from src.routes.stt import router as stt_router
 from src.routes.isl_recognition import router as isl_router
 from src.routes.hear import router as hear_router
 from src.routes.simulator import router as simulator_router
+from src.routes.monitor import router as monitor_router
+from src.routes.call_ws import router as call_router
 
 app.include_router(stt_router)
 app.include_router(isl_router)
 app.include_router(hear_router)
 app.include_router(simulator_router)
+app.include_router(monitor_router)
+app.include_router(call_router)
+
+
+@app.on_event("startup")
+async def _warm_ml_models() -> None:
+    """Pre-load SpeechBrain + YAMNet in background threads so the first
+    WebSocket session doesn't pay the model-download / load penalty."""
+    from src.services.emotion_merger import preload as warm_emotion
+    from src.services.yamnet_service import preload as warm_yamnet
+
+    async def _run():
+        try:
+            await asyncio.to_thread(warm_emotion)
+            log.info("[startup] SpeechBrain emotion model ready")
+        except Exception as exc:
+            log.warning("[startup] SpeechBrain warmup skipped: %s", exc)
+        try:
+            await asyncio.to_thread(warm_yamnet)
+            log.info("[startup] YAMNet model ready")
+        except Exception as exc:
+            log.warning("[startup] YAMNet warmup skipped: %s", exc)
+
+    asyncio.create_task(_run())
 
 
 # ──────────────────────────────────────────────────────────────────────────────
