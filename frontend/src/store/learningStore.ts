@@ -13,6 +13,12 @@ export interface DailyQuest {
   done: boolean;
 }
 
+export interface LessonScore {
+  stars: number; // 0-3
+  accuracy: number; // 0-1
+  completedAt: string; // ISO
+}
+
 interface LearningState {
   xp: number;
   streakDays: number;
@@ -20,6 +26,12 @@ interface LearningState {
   completedLessonIds: string[];
   currentLessonId: string | null;
   dailyGoalXp: number;
+
+  // Star ratings per lesson (1-3 based on accuracy)
+  lessonScores: Record<string, LessonScore>;
+
+  // Daily XP log for activity heatmap: { "YYYY-MM-DD": xpEarned }
+  dailyXpLog: Record<string, number>;
 
   // Hearts — Duolingo-style mistake budget
   hearts: number;
@@ -42,6 +54,13 @@ interface LearningState {
   ensureDailyQuests: () => void;
   progressQuest: (kind: QuestKind, amount?: number) => void;
   claimQuestsChest: () => number; // returns bonus XP claimed
+}
+
+export function starsFor(accuracy: number): number {
+  if (accuracy >= 0.9) return 3;
+  if (accuracy >= 0.75) return 2;
+  if (accuracy > 0) return 1;
+  return 0;
 }
 
 function todayKey() {
@@ -70,6 +89,9 @@ export const useLearningStore = create<LearningState>()(
       currentLessonId: null,
       dailyGoalXp: 50,
 
+      lessonScores: {},
+      dailyXpLog: {},
+
       hearts: 5,
       maxHearts: 5,
       heartRefillAt: null,
@@ -78,11 +100,27 @@ export const useLearningStore = create<LearningState>()(
       quests: freshQuests(),
       questsChestClaimed: false,
 
-      awardXp: (amount) => set((s) => ({ xp: s.xp + amount })),
-      completeLesson: (lessonId, _score) => {
-        const { completedLessonIds, streakDays, lastActiveDate } = get();
+      awardXp: (amount) =>
+        set((s) => {
+          const today = todayKey();
+          return {
+            xp: s.xp + amount,
+            dailyXpLog: {
+              ...s.dailyXpLog,
+              [today]: (s.dailyXpLog[today] ?? 0) + amount,
+            },
+          };
+        }),
+      completeLesson: (lessonId, score) => {
+        const { completedLessonIds, streakDays, lastActiveDate, lessonScores } = get();
         const today = todayKey();
         const isNewDay = lastActiveDate !== today;
+        const prev = lessonScores[lessonId];
+        const newStars = starsFor(score);
+        const nextScore: LessonScore =
+          prev && prev.stars >= newStars
+            ? prev
+            : { stars: newStars, accuracy: score, completedAt: new Date().toISOString() };
 
         set({
           completedLessonIds: completedLessonIds.includes(lessonId)
@@ -90,6 +128,7 @@ export const useLearningStore = create<LearningState>()(
             : [...completedLessonIds, lessonId],
           streakDays: isNewDay ? streakDays + 1 : streakDays,
           lastActiveDate: today,
+          lessonScores: { ...lessonScores, [lessonId]: nextScore },
         });
       },
       setCurrentLesson: (id) => set({ currentLessonId: id }),

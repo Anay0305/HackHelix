@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
-  Flame,
   Zap,
   Lock,
   Check,
@@ -16,19 +15,23 @@ import {
   Map,
   HeartPulse,
   Briefcase,
+  Star,
   type LucideIcon,
 } from "lucide-react";
 import { TopBar } from "@/components/common/TopBar";
 import { Card, CardContent } from "@/components/ui/Card";
-import { Progress } from "@/components/ui/Progress";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Badge } from "@/components/ui/Badge";
 import { restClient } from "@/api/rest";
 import { useLearningStore } from "@/store";
+import type { LessonScore } from "@/store/learningStore";
 import { cn } from "@/lib/cn";
 import type { Lesson } from "@/api/types";
 import { HeartsBar } from "../components/HeartsBar";
 import { DailyQuestCard } from "../components/DailyQuestCard";
+import { StreakFlame } from "../components/StreakFlame";
+import { ProgressRing } from "../components/ProgressRing";
+import { ActivityHeatmap } from "../components/ActivityHeatmap";
 
 const iconMap: Record<string, LucideIcon> = {
   hand: Hand,
@@ -52,8 +55,12 @@ export function LearnHomePage() {
   const streak = useLearningStore((s) => s.streakDays);
   const completedIds = useLearningStore((s) => s.completedLessonIds);
   const dailyGoal = useLearningStore((s) => s.dailyGoalXp);
+  const lessonScores = useLearningStore((s) => s.lessonScores);
+  const dailyXpLog = useLearningStore((s) => s.dailyXpLog);
 
+  const todayXp = Math.min(xp % dailyGoal, dailyGoal);
   const dayProgress = Math.min(1, (xp % dailyGoal) / dailyGoal);
+  const goalHit = todayXp >= dailyGoal || xp >= dailyGoal;
 
   return (
     <div className="relative">
@@ -70,33 +77,71 @@ export function LearnHomePage() {
 
         {/* Stats strip */}
         <div className="grid grid-cols-3 gap-3">
-          <StatBadge
-            icon={Flame}
-            value={`${streak}d`}
-            label="Streak"
-            tone="rose"
-          />
-          <StatBadge
-            icon={Zap}
-            value={`${xp}`}
-            label="Total XP"
-            tone="purple"
-          />
+          {/* Streak */}
           <Card>
-            <CardContent className="pt-4 pb-4">
-              <p className="text-[11px] text-muted uppercase tracking-wider">
-                Today
-              </p>
-              <p className="font-semibold text-ink mt-1">
-                {Math.min(xp % dailyGoal, dailyGoal)} / {dailyGoal} XP
-              </p>
-              <Progress value={dayProgress} className="mt-2" color="emerald" />
+            <CardContent className="pt-4 pb-4 flex items-center gap-3">
+              <StreakFlame days={streak} />
+              <div>
+                <p className="text-xl font-display font-semibold leading-tight text-white">
+                  {streak}d
+                </p>
+                <p className="text-xs text-muted">
+                  {streak === 0
+                    ? "Start your streak"
+                    : streak === 1
+                      ? "Day one"
+                      : "Streak"}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* XP */}
+          <Card>
+            <CardContent className="pt-4 pb-4 flex items-center gap-3">
+              <div className="h-11 w-11 rounded-full grid place-items-center text-white shadow-lg bg-brand-primary">
+                <Zap className="h-5 w-5" aria-hidden />
+              </div>
+              <div>
+                <p className="text-xl font-display font-semibold leading-tight text-white">
+                  {xp}
+                </p>
+                <p className="text-xs text-muted">Total XP</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Daily goal ring */}
+          <Card>
+            <CardContent className="pt-3 pb-3 flex items-center gap-3">
+              <ProgressRing
+                value={dayProgress}
+                size={56}
+                strokeWidth={5}
+                label={`${Math.round(dayProgress * 100)}%`}
+              />
+              <div className="min-w-0">
+                <p className="text-[11px] text-muted uppercase tracking-wider">
+                  Today
+                </p>
+                <p className="font-semibold text-ink mt-0.5 text-sm truncate">
+                  {todayXp} / {dailyGoal} XP
+                </p>
+                <p
+                  className={`text-[10px] mt-0.5 ${goalHit ? "text-emerald-300" : "text-muted"}`}
+                >
+                  {goalHit ? "Goal hit!" : "Keep going"}
+                </p>
+              </div>
             </CardContent>
           </Card>
         </div>
 
         {/* Daily Quests */}
         <DailyQuestCard />
+
+        {/* Activity heatmap */}
+        <ActivityHeatmap dailyXpLog={dailyXpLog} weeks={12} />
 
         {/* Unit label */}
         <div>
@@ -119,56 +164,25 @@ export function LearnHomePage() {
             ))}
           </div>
         ) : (
-          <RoadmapTree lessons={lessons ?? []} completedIds={completedIds} />
+          <RoadmapTree
+            lessons={lessons ?? []}
+            completedIds={completedIds}
+            lessonScores={lessonScores}
+          />
         )}
       </div>
     </div>
   );
 }
 
-function StatBadge({
-  icon: Icon,
-  value,
-  label,
-  tone,
-}: {
-  icon: LucideIcon;
-  value: string;
-  label: string;
-  tone: "rose" | "purple";
-}) {
-  const bg = {
-    rose: "bg-brand-tertiary",
-    purple: "bg-brand-primary",
-  }[tone];
-  return (
-    <Card>
-      <CardContent className="pt-4 pb-4 flex items-center gap-3">
-        <div
-          className={cn(
-            "h-11 w-11 rounded-full grid place-items-center text-white shadow-lg",
-            bg,
-          )}
-        >
-          <Icon className="h-5 w-5" aria-hidden />
-        </div>
-        <div>
-          <p className="text-xl font-display font-semibold leading-tight text-white">
-            {value}
-          </p>
-          <p className="text-xs text-muted">{label}</p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 function RoadmapTree({
   lessons,
   completedIds,
+  lessonScores,
 }: {
   lessons: Lesson[];
   completedIds: string[];
+  lessonScores: Record<string, LessonScore>;
 }) {
   const firstIncomplete = lessons.find((l) => !completedIds.includes(l.id));
 
@@ -245,6 +259,21 @@ function RoadmapTree({
                   <p className="text-xs text-muted mt-0.5 line-clamp-1">
                     {lesson.summary}
                   </p>
+                  {completed && lessonScores[lesson.id] && (
+                    <div className="flex gap-0.5 mt-1">
+                      {Array.from({ length: 3 }).map((_, starIdx) => (
+                        <Star
+                          key={starIdx}
+                          className={cn(
+                            "h-3 w-3",
+                            starIdx < (lessonScores[lesson.id]?.stars ?? 0)
+                              ? "fill-amber-400 text-amber-400"
+                              : "text-white/15",
+                          )}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="text-right shrink-0">
                   <div className="text-xs font-semibold gradient-text">

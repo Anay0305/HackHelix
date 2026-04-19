@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { ArrowLeft, Check, ChevronRight, Sparkles } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, Sparkles, Star } from "lucide-react";
+import confetti from "canvas-confetti";
 import { restClient } from "@/api/rest";
 import { useLearningStore } from "@/store";
+import { starsFor } from "@/store/learningStore";
 import { Button } from "@/components/ui/Button";
 import { Progress } from "@/components/ui/Progress";
 import { Badge } from "@/components/ui/Badge";
@@ -13,6 +15,12 @@ import { AvatarStage } from "@/features/simulator/components/avatar/AvatarStage"
 import { HeartsBar } from "../components/HeartsBar";
 import { cn } from "@/lib/cn";
 import type { Exercise } from "@/api/types";
+
+const CORRECT_PHRASES = ["Nice!", "Good work", "Yes!", "Correct!", "On it!", "Exactly"];
+const WRONG_PHRASES = ["Not quite", "Almost", "So close", "Try again"];
+function randomPhrase<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
 export function LessonPage() {
   const { lessonId } = useParams<{ lessonId: string }>();
@@ -160,8 +168,8 @@ function WatchAndPick({
   function submit() {
     if (!selected) return;
     const isRight = selected === correctId;
-    if (isRight) toast.success("Correct!");
-    else toast.error("Not quite", { description: "The avatar signed differently." });
+    if (isRight) toast.success(randomPhrase(CORRECT_PHRASES));
+    else toast.error(randomPhrase(WRONG_PHRASES), { description: "The avatar signed differently." });
     setTimeout(() => onComplete(isRight), 600);
   }
 
@@ -234,7 +242,7 @@ function FillSentence({
     const ok = assembled.length === target.length &&
       assembled.every((t, i) => t === target[i]);
     if (ok) toast.success("Perfect ISL order!");
-    else toast.error("Try again", { description: `Expected: ${target.join(" \u2192 ")}` });
+    else toast.error(randomPhrase(WRONG_PHRASES), { description: `Expected: ${target.join(" \u2192 ")}` });
     setTimeout(() => onComplete(ok), 700);
   }
 
@@ -365,29 +373,130 @@ function FinishedScreen({
   xp: number;
   onContinue: () => void;
 }) {
+  const accuracy = total === 0 ? 0 : correct / total;
+  const stars = starsFor(accuracy);
+  const [displayXp, setDisplayXp] = useState(0);
+  const hasFiredRef = useRef(false);
+
+  useEffect(() => {
+    if (hasFiredRef.current) return;
+    hasFiredRef.current = true;
+
+    const fire = (ratio: number, opts: confetti.Options) => {
+      confetti({
+        particleCount: Math.floor(220 * ratio),
+        spread: 70,
+        origin: { y: 0.4 },
+        colors: ["#8B5CF6", "#EC4899", "#F59E0B", "#10B981", "#60A5FA"],
+        ...opts,
+      });
+    };
+    fire(0.25, { spread: 26, startVelocity: 55 });
+    fire(0.2, { spread: 60 });
+    fire(0.35, { spread: 100, decay: 0.91, scalar: 0.9 });
+    fire(0.1, { spread: 120, startVelocity: 25, decay: 0.92, scalar: 1.2 });
+    fire(0.1, { spread: 120, startVelocity: 45 });
+
+    const start = performance.now();
+    const duration = 1100;
+    let raf = 0;
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplayXp(Math.round(eased * xp));
+      if (t < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [xp]);
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="text-center pt-8"
+      className="text-center pt-6 relative"
     >
-      <div className="mx-auto h-24 w-24 rounded-full bg-gradient-brand grid place-items-center text-white shadow-glow-brand">
+      <motion.div
+        initial={{ scale: 0, rotate: -20 }}
+        animate={{ scale: 1, rotate: 0 }}
+        transition={{ type: "spring", stiffness: 220, damping: 14, delay: 0.1 }}
+        className="mx-auto h-24 w-24 rounded-full bg-gradient-brand grid place-items-center text-white shadow-glow-brand"
+      >
         <Check className="h-10 w-10" aria-hidden />
-      </div>
+      </motion.div>
+
       <h1 className="font-display text-3xl font-semibold mt-6">
         Lesson complete!
       </h1>
       <p className="text-muted mt-2">
         You got {correct} of {total} correct.
       </p>
-      <div className="mt-6 inline-flex items-center gap-2 rounded-full bg-amber-500/10 border border-amber-500/30 px-4 py-2 text-amber-300 font-semibold">
-        <Sparkles className="h-4 w-4" /> +{xp} XP earned
+
+      <div className="mt-5 flex items-center justify-center gap-2">
+        {Array.from({ length: 3 }).map((_, i) => {
+          const earned = i < stars;
+          return (
+            <motion.div
+              key={i}
+              initial={{ scale: 0, rotate: -45, opacity: 0 }}
+              animate={{
+                scale: earned ? [0, 1.3, 1] : 1,
+                rotate: 0,
+                opacity: 1,
+              }}
+              transition={{
+                delay: 0.35 + i * 0.18,
+                duration: 0.5,
+                type: "spring",
+                stiffness: 180,
+              }}
+            >
+              <Star
+                className={cn(
+                  "h-10 w-10 drop-shadow-lg",
+                  earned
+                    ? "fill-amber-400 text-amber-400"
+                    : "fill-white/5 text-white/20",
+                )}
+                style={
+                  earned
+                    ? { filter: "drop-shadow(0 0 8px rgba(251,191,36,0.6))" }
+                    : undefined
+                }
+              />
+            </motion.div>
+          );
+        })}
       </div>
-      <div className="mt-8">
+
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.9 }}
+        className="mt-6 inline-flex items-center gap-2 rounded-full bg-amber-500/10 border border-amber-500/30 px-4 py-2 text-amber-300 font-semibold relative"
+      >
+        <Sparkles className="h-4 w-4" />
+        <span>+{displayXp} XP earned</span>
+        <motion.span
+          initial={{ opacity: 0, y: 0 }}
+          animate={{ opacity: [0, 1, 0], y: [-4, -48, -64] }}
+          transition={{ duration: 1.6, delay: 0.6, ease: "easeOut" }}
+          className="absolute -top-2 right-4 text-sm font-bold text-amber-300 pointer-events-none"
+        >
+          +{xp}
+        </motion.span>
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 1.3 }}
+        className="mt-8"
+      >
         <Button size="lg" onClick={onContinue}>
           Continue
         </Button>
-      </div>
+      </motion.div>
     </motion.div>
   );
 }
