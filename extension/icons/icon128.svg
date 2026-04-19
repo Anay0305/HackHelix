@@ -1,0 +1,19 @@
+<svg width="128" height="128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="25.6" fill="url(#grad)"/>
+  <g transform="translate(64, 64)">
+    <!-- Palm -->
+    <rect x="-19.2" y="-12.8" width="38.4" height="44.8" rx="6.4" fill="white" opacity="0.95"/>
+    <!-- Fingers -->
+    <rect x="-15.36" y="-44.8" width="7.68" height="32" rx="3.84" fill="white" opacity="0.95"/>
+    <rect x="-3.84" y="-48.64" width="7.68" height="35.84" rx="3.84" fill="white" opacity="0.95"/>
+    <rect x="7.68" y="-44.8" width="7.68" height="32" rx="3.84" fill="white" opacity="0.95"/>
+    <!-- Thumb -->
+    <rect x="-25.6" y="-6.4" width="6.4" height="23.04" rx="3.2" fill="white" opacity="0.95" transform="rotate(-30 -22.4 5.12)"/>
+  </g>
+</svg>

@@ -49,6 +49,7 @@ Thumbs.db
 backend/data/pose_db.json
 datasets/videos/
 datasets/poses/
+extension/overlay/*.glb
 
 # Public key files / certs
 *.pem
