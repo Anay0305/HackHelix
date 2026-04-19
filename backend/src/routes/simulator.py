@@ -27,6 +27,7 @@ from src.services.isl_grammar import text_to_gloss
 from src.services.elevenlabs_client import synthesize
 from src.services.emotion_merger import analyze_audio_sync
 from src.services.yamnet_service import detect_alert_sync
+from src.services.pose_lookup import get_pose
 
 router = APIRouter()
 
@@ -65,6 +66,19 @@ def _nmm_to_sentiment(nmm: str) -> str:
     return {"question": "neutral", "negation": "urgent", "none": "neutral"}.get(nmm, "neutral")
 
 
+def _extract_arm(frame: dict) -> dict:
+    """Extract the 6 arm landmarks from a SignFrame body array."""
+    b = frame["body"]
+    return {
+        "rs": {"x": b[11]["x"], "y": b[11]["y"]},
+        "re": {"x": b[13]["x"], "y": b[13]["y"]},
+        "rw": {"x": b[15]["x"], "y": b[15]["y"]},
+        "ls": {"x": b[12]["x"], "y": b[12]["y"]},
+        "le": {"x": b[14]["x"], "y": b[14]["y"]},
+        "lw": {"x": b[16]["x"], "y": b[16]["y"]},
+    }
+
+
 @router.websocket("/ws/simulator")
 async def simulator_websocket(ws: WebSocket):
     await ws.accept()
@@ -98,7 +112,14 @@ async def simulator_websocket(ws: WebSocket):
 
     async def init_deepgram(sr: int):
         nonlocal dg_connection
-        dg = DeepgramClient(os.getenv("DEEPGRAM_API_KEY", ""))
+        api_key = os.getenv("DEEPGRAM_API_KEY", "")
+        if not api_key:
+            raise ValueError("DEEPGRAM_API_KEY is not set in backend/.env")
+
+        masked = api_key[:6] + "..." + api_key[-4:]
+        print(f"[deepgram] connecting — key={masked} sample_rate={sr}")
+
+        dg   = DeepgramClient(api_key)
         conn = dg.listen.asyncwebsocket.v("1")
 
         async def on_transcript(self, result, **kwargs):
@@ -121,7 +142,14 @@ async def simulator_websocket(ws: WebSocket):
                 pass
 
         async def on_error(self, error, **kwargs):
-            await send({"type": "error", "code": "deepgram_error", "msg": str(error)})
+            err_str = str(error)
+            print(f"[deepgram] error: {err_str}")
+            hint = ""
+            if "401" in err_str:
+                hint = " — invalid or expired DEEPGRAM_API_KEY"
+            elif "403" in err_str:
+                hint = " — key lacks streaming permissions"
+            await send({"type": "error", "code": "deepgram_error", "msg": err_str + hint})
 
         conn.on(LiveTranscriptionEvents.Transcript, on_transcript)
         conn.on(LiveTranscriptionEvents.Error, on_error)
@@ -137,7 +165,17 @@ async def simulator_websocket(ws: WebSocket):
             endpointing=300,
             punctuate=True,
         )
-        await conn.start(options)
+        try:
+            started = await conn.start(options)
+            if not started:
+                raise RuntimeError("Deepgram returned false from start() — check API key and plan")
+        except Exception as e:
+            err = str(e)
+            if "401" in err:
+                raise RuntimeError(f"Deepgram 401 Unauthorized — DEEPGRAM_API_KEY ({masked}) is invalid or expired") from e
+            raise RuntimeError(f"Deepgram failed to connect: {err}") from e
+
+        print(f"[deepgram] connected OK — nova-3 streaming at {sr} Hz")
         dg_connection = conn
 
     async def handle_final_transcript(text: str, t0: int):
@@ -162,11 +200,25 @@ async def simulator_websocket(ws: WebSocket):
             tokens = _make_gloss_tokens(words)
             sentiment = _nmm_to_sentiment(nmm)
 
+            print(f"[groq] input='{text}' → gloss={words} nmm={nmm}")
+
             await send({
                 "type":       "gloss",
                 "tokens":     tokens,
                 "sentiment":  sentiment,
                 "sourceText": text,
+            })
+
+            # Build and send pose sequence for avatar animation
+            word_poses = []
+            for word in words:
+                frames = get_pose(word)
+                arm_frames = [_extract_arm(f) for f in frames]
+                word_poses.append({"word": word, "frames": arm_frames})
+            await send({
+                "type":       "pose_sequence",
+                "words":      word_poses,
+                "msPerFrame": 400,
             })
 
             # Merge NMM morph targets with emotion morph targets
@@ -240,34 +292,48 @@ async def simulator_websocket(ws: WebSocket):
             if msg_type == "start":
                 mode = data.get("mode")
                 sample_rate = data.get("sampleRate", DEFAULT_SAMPLE_RATE)
-                if mode == "speech2isl":
-                    await init_deepgram(sample_rate)
-                    await send({"type": "log", "level": "info",
-                                "msg": "speech2isl ready", "latencyMs": 0})
-                elif mode == "isl2speech":
-                    await send({"type": "log", "level": "info",
-                                "msg": "isl2speech ready", "latencyMs": 0})
+                # Deepgram is NOT initialised here — it spins up lazily on the
+                # first audio_chunk so text-mode sessions never touch it.
+                await send({"type": "log", "level": "info",
+                            "msg": f"{mode} ready", "latencyMs": 0})
                 continue
 
-            # ── speech2isl: audio chunk ───────────────────────────────────
+            # ── speech2isl: plain text input (no Deepgram) ────────────────
+            if msg_type == "text" and mode == "speech2isl":
+                text_input = data.get("payload", "").strip()
+                if text_input:
+                    t0 = int(time.time() * 1000)
+                    asyncio.create_task(handle_final_transcript(text_input, t0))
+                continue
+
+            # ── speech2isl: audio chunk → lazy-init Deepgram on first chunk ─
             if msg_type == "audio_chunk" and mode == "speech2isl":
-                if dg_connection:
-                    try:
-                        chunk = base64.b64decode(data["pcm16Base64"])
-                        await dg_connection.send(chunk)
+                try:
+                    chunk = base64.b64decode(data["pcm16Base64"])
 
-                        # Accumulate for emotion (cleared per-transcript)
-                        audio_buffer.extend(chunk)
+                    # Lazy-init: only connect to Deepgram when audio actually arrives
+                    if dg_connection is None:
+                        try:
+                            await init_deepgram(sample_rate)
+                        except Exception as e:
+                            print(f"[simulator] init_deepgram failed: {e}")
+                            await send({"type": "error", "code": "deepgram_init_failed", "msg": str(e)})
+                            continue
 
-                        # Accumulate for YAMNet; fire + clear when threshold hit
-                        yamnet_buffer.extend(chunk)
-                        if len(yamnet_buffer) >= YAMNET_TRIGGER_BYTES:
-                            snapshot = bytes(yamnet_buffer)
-                            yamnet_buffer.clear()
-                            asyncio.create_task(maybe_run_yamnet(snapshot))
+                    await dg_connection.send(chunk)
 
-                    except Exception as e:
-                        await send({"type": "error", "code": "audio_error", "msg": str(e)})
+                    # Accumulate for emotion (cleared per-transcript)
+                    audio_buffer.extend(chunk)
+
+                    # Accumulate for YAMNet; fire + clear when threshold hit
+                    yamnet_buffer.extend(chunk)
+                    if len(yamnet_buffer) >= YAMNET_TRIGGER_BYTES:
+                        snapshot = bytes(yamnet_buffer)
+                        yamnet_buffer.clear()
+                        asyncio.create_task(maybe_run_yamnet(snapshot))
+
+                except Exception as e:
+                    await send({"type": "error", "code": "audio_error", "msg": str(e)})
                 continue
 
             # ── isl2speech: landmarks ─────────────────────────────────────

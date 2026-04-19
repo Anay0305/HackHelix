@@ -38,6 +38,31 @@ export interface EmotionState {
   morphTargets: Record<string, number>;
 }
 
+export interface ArmLandmark {
+  x: number;
+  y: number;
+}
+
+export interface ArmFrame {
+  rs: ArmLandmark;
+  re: ArmLandmark;
+  rw: ArmLandmark;
+  ls: ArmLandmark;
+  le: ArmLandmark;
+  lw: ArmLandmark;
+}
+
+export interface WordPose {
+  word: string;
+  frames: ArmFrame[];
+}
+
+export interface PoseSequence {
+  words: WordPose[];
+  msPerFrame: number;
+  startedAt: number;
+}
+
 interface SimulatorState {
   mode: SimulatorMode;
   isLive: boolean;
@@ -59,6 +84,7 @@ interface SimulatorState {
   // Emotion + alerts
   alert: AlertState | null;
   emotion: EmotionState | null;
+  poseSequence: PoseSequence | null;
 
   // metrics
   latencyMs: number;
@@ -81,6 +107,7 @@ interface SimulatorState {
 
   setAlert: (a: AlertState | null) => void;
   setEmotion: (e: EmotionState) => void;
+  setPoseSequence: (ps: PoseSequence | null) => void;
 
   setLatency: (ms: number) => void;
   reset: () => void;
@@ -101,6 +128,7 @@ const initial = {
   ttsHistory: [],
   alert: null,
   emotion: null,
+  poseSequence: null,
   latencyMs: 0,
 };
 
@@ -127,6 +155,7 @@ export const useSimulatorStore = create<SimulatorState>()(
 
     setAlert: (alert) => set({ alert }),
     setEmotion: (emotion) => set({ emotion }),
+    setPoseSequence: (poseSequence) => set({ poseSequence }),
 
     setLatency: (latencyMs) => set({ latencyMs }),
     reset: () => set(initial),

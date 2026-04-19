@@ -114,23 +114,16 @@ function TextMode() {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const setSessionId = useSimulatorStore((s) => s.setSessionId);
+  const setIsLive = useSimulatorStore((s) => s.setIsLive);
 
   function handleSend() {
     if (!text.trim() || sending) return;
     setSending(true);
     const id = `sess-${shortId()}`;
     setSessionId(id);
-    getSocket().send({
-      type: "start",
-      mode: "speech2isl",
-      sessionId: id,
-    });
-    getSocket().send({
-      type: "text",
-      mode: "speech2isl",
-      sessionId: id,
-      payload: text.trim(),
-    } as never);
+    setIsLive(true);
+    getSocket().send({ type: "start", mode: "speech2isl", sessionId: id });
+    getSocket().send({ type: "text", payload: text.trim() });
     setTimeout(() => setSending(false), 400);
   }
 
