@@ -243,7 +243,9 @@ async def simulator_websocket(ws: WebSocket):
             await send({
                 "type":       "pose_sequence",
                 "words":      word_poses,
-                "msPerFrame": 400,
+                # 650 ms/frame lets the avatar actually HOLD each keyframe
+                # (plus cross-fade time) instead of snapping at 2.5 fps.
+                "msPerFrame": 650,
             })
 
             # Merge NMM morph targets with emotion morph targets
