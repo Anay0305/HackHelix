@@ -4,10 +4,11 @@ import {
   GraduationCap,
   Landmark,
   Terminal,
+  Ear,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { useDevModeStore } from "@/store";
+import { useDevModeStore, useSoundMonitorStore } from "@/store";
 
 interface NavItem {
   to: string;
@@ -17,6 +18,7 @@ interface NavItem {
 
 const baseNav: NavItem[] = [
   { to: "/simulator", label: "Translate", icon: Languages },
+  { to: "/monitor", label: "Sound Monitor", icon: Ear },
   { to: "/learn", label: "Learn", icon: GraduationCap },
   { to: "/benefits", label: "Benefits", icon: Landmark },
 ];
@@ -27,6 +29,7 @@ const devNav: NavItem[] = [
 
 export function Sidebar() {
   const isDevMode = useDevModeStore((s) => s.isDevMode);
+  const monitorLive = useSoundMonitorStore((s) => s.isLive);
   const nav = isDevMode ? [...baseNav, ...devNav] : baseNav;
 
   return (
@@ -53,11 +56,19 @@ export function Sidebar() {
               )
             }
           >
-            <item.icon
-              className="h-5 w-5 shrink-0"
-              strokeWidth={2}
-              aria-hidden
-            />
+            <span className="relative flex shrink-0">
+              <item.icon
+                className="h-5 w-5"
+                strokeWidth={2}
+                aria-hidden
+              />
+              {item.to === "/monitor" && monitorLive && (
+                <span
+                  aria-hidden
+                  className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse"
+                />
+              )}
+            </span>
             <span className="hidden lg:inline">{item.label}</span>
           </NavLink>
         ))}

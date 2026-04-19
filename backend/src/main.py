@@ -98,11 +98,13 @@ from src.routes.stt import router as stt_router
 from src.routes.isl_recognition import router as isl_router
 from src.routes.hear import router as hear_router
 from src.routes.simulator import router as simulator_router
+from src.routes.monitor import router as monitor_router
 
 app.include_router(stt_router)
 app.include_router(isl_router)
 app.include_router(hear_router)
 app.include_router(simulator_router)
+app.include_router(monitor_router)
 
 
 @app.on_event("startup")
