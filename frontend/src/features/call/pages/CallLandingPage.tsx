@@ -41,7 +41,7 @@ export function CallLandingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-6 gap-8">
+    <div className="flex flex-col flex-1 min-h-0 items-center justify-center p-6 gap-8 overflow-y-auto">
       {/* Header */}
       <div className="text-center space-y-2">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#8B5CF6]/15 border border-[#8B5CF6]/30 text-[#8B5CF6] text-xs font-semibold uppercase tracking-wider mb-2">
