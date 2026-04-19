@@ -18,6 +18,7 @@ import { useSimulatorStore } from "@/store/simulatorStore";
 import { useWebcamCapture, subscribeLandmarks, type LandmarkSnapshot } from "../hooks/useWebcamCapture";
 import { getSocket } from "@/api/socket";
 import { shortId, formatTime } from "@/lib/format";
+import { ISLCameraInput } from "./ISLCameraInput";
 
 type InputMode = "live" | "video" | "photo" | "gloss";
 
@@ -142,86 +143,11 @@ function ModeToggle({
   );
 }
 
+// Phase-13: MediaPipe Holistic runs in-browser, streams landmarks to backend.
+// The old useWebcamCapture path is kept in the imports for LandmarkOverlay
+// downstream but no longer drives this tab.
 function LiveCameraMode() {
-  const webcam = useWebcamCapture();
-  const isLive = useSimulatorStore((s) => s.isLive);
-  const setIsLive = useSimulatorStore((s) => s.setIsLive);
-  const setSessionId = useSimulatorStore((s) => s.setSessionId);
-
-  useEffect(() => {
-    return () => {
-      if (isLive) stop();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function start() {
-    await webcam.start();
-    const id = `sess-${shortId()}`;
-    setSessionId(id);
-    setIsLive(true);
-    getSocket().send({ type: "start", mode: "isl2speech", sessionId: id });
-  }
-
-  function stop() {
-    webcam.stop();
-    getSocket().send({ type: "stop" });
-    setIsLive(false);
-    setSessionId(null);
-  }
-
-  return (
-    <section
-      aria-label="Live camera input"
-      className="flex flex-col gap-4 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5"
-    >
-      <div className="flex items-center justify-center">
-        <CameraButton
-          active={webcam.isActive}
-          onClick={isLive ? stop : start}
-        />
-      </div>
-
-      <div
-        className={cn(
-          "relative aspect-video rounded-xl overflow-hidden border",
-          isLive
-            ? "border-[#8B5CF6]/60 shadow-[0_0_40px_rgba(139,92,246,0.35),0_0_80px_rgba(192,81,119,0.18)]"
-            : "border-white/10",
-        )}
-      >
-        <video
-          ref={webcam.videoRef}
-          playsInline
-          muted
-          className={cn(
-            "w-full h-full object-cover bg-black",
-            !webcam.isActive && "hidden",
-          )}
-          style={{ transform: "scaleX(-1)" }}
-          aria-label="Your webcam preview"
-        />
-        {!webcam.isActive && (
-          <div className="absolute inset-0 grid place-items-center bg-zinc-950/80 backdrop-blur-sm">
-            <div className="text-center">
-              <Camera
-                className="h-8 w-8 mx-auto mb-2 text-zinc-500 opacity-60"
-                aria-hidden
-              />
-              <p className="text-xs text-zinc-500 font-inter">Camera off</p>
-            </div>
-          </div>
-        )}
-        {webcam.isActive && <LandmarkOverlay />}
-      </div>
-
-      {webcam.error && (
-        <p role="alert" className="text-xs text-[#C05177] font-inter">
-          Camera: {webcam.error}
-        </p>
-      )}
-    </section>
-  );
+  return <ISLCameraInput />;
 }
 
 function UploadMode({

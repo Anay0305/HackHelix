@@ -3,7 +3,10 @@
     "allow": [
       "Bash(npm install *)",
       "Bash(npx tsc *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(tasklist //FI \"IMAGENAME eq node.exe\")",
+      "Bash(\"c:/Users/tejas/OneDrive/Desktop/My Work/College/Project/Sonorous/venv/Scripts/pip.exe\" install -r \"c:/Users/tejas/OneDrive/Desktop/My Work/College/Project/Sonorous/backend/requirements.txt\")",
+      "Bash(grep -nA 30 \"async def flush_buffer\" \"c:/Users/tejas/OneDrive/Desktop/My Work/College/Project/Sonorous/backend/src/routes/simulator.py\")"
     ]
   }
 }

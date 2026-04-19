@@ -220,6 +220,18 @@ async def simulator_websocket(ws: WebSocket):
 
             print(f"[groq] input='{text}' -> gloss={words} nmm={nmm}")
 
+            # [Phase 15] Flat {transcription,gloss} shape so the frontend's
+            # unified onmessage recognises the English->ISL response without
+            # the typed envelope. Kept alongside the typed emits below so
+            # existing consumers (debugger panel, avatar-cue wiring) keep working.
+            flat_gloss = " ".join(words)
+            print(f"[WS SEND] flat transcription='{text}' gloss='{flat_gloss}'")
+            await send({
+                "transcription": text,
+                "gloss":         flat_gloss,
+            })
+
+            print(f"[WS SEND] type=gloss tokens={words}")
             await send({
                 "type":       "gloss",
                 "tokens":     tokens,
@@ -294,12 +306,21 @@ async def simulator_websocket(ws: WebSocket):
         except Exception:
             sentence = " ".join(tokens)
 
+        print(f"[isl2speech] flush tokens={tokens} sentence='{sentence}'")
+
+        # [Phase 15] Dedicated english_output emit so the frontend's unified
+        # onmessage can render the recognised English sentence immediately,
+        # before (or regardless of) the TTS audio arriving.
+        print(f"[WS SEND] type=english_output transcription='{sentence}'")
+        await send({"type": "english_output", "transcription": sentence})
+
         try:
             audio_bytes = await synthesize(sentence)
             audio_url = "data:audio/mpeg;base64," + base64.b64encode(audio_bytes).decode()
         except Exception:
             audio_url = ""
 
+        print(f"[WS SEND] type=tts_ready captions='{sentence}' has_audio={bool(audio_url)}")
         await send({"type": "tts_ready", "audioUrl": audio_url, "captions": sentence})
 
     # ── main loop ─────────────────────────────────────────────────────────
