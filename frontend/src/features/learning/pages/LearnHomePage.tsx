@@ -27,6 +27,8 @@ import { restClient } from "@/api/rest";
 import { useLearningStore } from "@/store";
 import { cn } from "@/lib/cn";
 import type { Lesson } from "@/api/types";
+import { HeartsBar } from "../components/HeartsBar";
+import { DailyQuestCard } from "../components/DailyQuestCard";
 
 const iconMap: Record<string, LucideIcon> = {
   hand: Hand,
@@ -61,6 +63,11 @@ export function LearnHomePage() {
       />
 
       <div className="px-4 md:px-8 py-6 max-w-4xl mx-auto space-y-6">
+        {/* Hearts — floats above stats */}
+        <div className="flex items-center justify-end">
+          <HeartsBar />
+        </div>
+
         {/* Stats strip */}
         <div className="grid grid-cols-3 gap-3">
           <StatBadge
@@ -87,6 +94,9 @@ export function LearnHomePage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Daily Quests */}
+        <DailyQuestCard />
 
         {/* Unit label */}
         <div>
