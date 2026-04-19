@@ -13,6 +13,7 @@ import { Progress } from "@/components/ui/Progress";
 import { Badge } from "@/components/ui/Badge";
 import { AvatarStage } from "@/features/simulator/components/avatar/AvatarStage";
 import { HeartsBar } from "../components/HeartsBar";
+import { useLessonPose } from "../hooks/useLessonPose";
 import { cn } from "@/lib/cn";
 import type { Exercise } from "@/api/types";
 
@@ -165,6 +166,9 @@ function WatchAndPick({
   const [selected, setSelected] = useState<string | null>(null);
   const correctId = exercise.options?.find((o) => o.correct)?.id;
 
+  // Drive the avatar to sign the target word on loop while the user decides.
+  useLessonPose(exercise.signClip ? [exercise.signClip] : undefined, true);
+
   function submit() {
     if (!selected) return;
     const isRight = selected === correctId;
@@ -309,6 +313,10 @@ function SignAlong({
   onComplete: (correct: boolean) => void;
 }) {
   const [attempted, setAttempted] = useState(false);
+
+  // Loop the demonstrated sign so the user can watch it multiple times.
+  useLessonPose(exercise.signClip ? [exercise.signClip] : undefined, true);
+
   return (
     <div className="grid md:grid-cols-[1fr_0.9fr] gap-5">
       <div className="h-[360px] md:h-auto md:min-h-[420px]">

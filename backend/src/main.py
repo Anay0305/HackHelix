@@ -30,7 +30,16 @@ import io
 import json
 import logging
 import os
+import sys
 from typing import Any
+
+# Force UTF-8 on stdout/stderr so print() calls with non-ASCII chars
+# (e.g. "→" in pose lookup logs) don't crash on Windows cp1252 consoles.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except Exception:
+        pass
 
 import httpx
 from dotenv import load_dotenv
@@ -100,6 +109,7 @@ from src.routes.hear import router as hear_router
 from src.routes.simulator import router as simulator_router
 from src.routes.monitor import router as monitor_router
 from src.routes.call_ws import router as call_router
+from src.routes.isl_pose import router as isl_pose_router
 
 app.include_router(stt_router)
 app.include_router(isl_router)
@@ -107,6 +117,7 @@ app.include_router(hear_router)
 app.include_router(simulator_router)
 app.include_router(monitor_router)
 app.include_router(call_router)
+app.include_router(isl_pose_router)
 
 
 @app.on_event("startup")
