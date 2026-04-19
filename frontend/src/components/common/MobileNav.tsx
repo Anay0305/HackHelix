@@ -4,6 +4,7 @@ import {
   GraduationCap,
   Landmark,
   Terminal,
+  Phone,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -17,6 +18,7 @@ interface NavItem {
 
 const baseNav: NavItem[] = [
   { to: "/simulator", label: "Translate", icon: Languages },
+  { to: "/call", label: "Call", icon: Phone },
   { to: "/learn", label: "Learn", icon: GraduationCap },
   { to: "/benefits", label: "Benefits", icon: Landmark },
 ];
