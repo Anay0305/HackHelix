@@ -1,16 +1,50 @@
-node_modules
+# Node
+node_modules/
 dist
 dist-ssr
+build/
+.next/
+.cache/
 *.local
-.claude/
-.DS_Store
-.idea
-.vscode/*
-!.vscode/extensions.json
 
-*.log
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Env files (keep .example and .development/.production but not secrets)
+.env
+*.env
 .env.local
 .env.*.local
+backend/.env
+frontend/.env.local
+frontend-old/.env.local
+
+# Editor / IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Claude
+.claude/
 
 # OS
+.DS_Store
 Thumbs.db
+
+# Logs
+*.log
+
+# Large data files
+backend/data/pose_db.json
+datasets/videos/
+datasets/poses/
+
+# Public key files / certs
+*.pem
+*.key
