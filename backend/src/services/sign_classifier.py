@@ -178,16 +178,8 @@ def classify_sign(
     landmarks: list[list[float]],
     threshold: float = 0.82,
 ) -> Optional[str]:
-    """
-    Given 21 hand landmarks, return the closest matching sign gloss or None.
-
-    Args:
-        landmarks: List of 21 [x, y, z] normalized MediaPipe landmarks.
-        threshold: Cosine similarity threshold. Lower = more permissive.
-
-    Returns:
-        Sign gloss string (e.g. "WATER") or None if no confident match.
-    """
+    """Single-frame cosine-similarity classifier. Kept for callers that
+    pass one frame at a time — the LSTM version below is preferred for sequences."""
     if len(landmarks) < 21:
         return None
 
@@ -207,3 +199,87 @@ def classify_sign(
             best_sign = sign
 
     return best_sign if best_score >= threshold else None
+
+
+# ── LSTM sequence classifier ──────────────────────────────────────────────
+#
+# Loads backend/models/lstm_sign.h5 if present. Input: N × SEQ_LEN × feat_dim
+# float32. We lazy-load so the module stays importable when the model is
+# missing (tests, fresh checkouts).
+
+import json as _json
+from pathlib import Path as _Path
+
+_LSTM_MODEL = None
+_LSTM_LABELS: list[str] = []
+_LSTM_ALIASES: dict[str, str] = {}   # any gloss → canonical label the model was trained on
+_LSTM_SEQ_LEN: int = 16
+_LSTM_FEAT_DIM: int = 19
+_LSTM_LOAD_ATTEMPTED = False
+
+
+def _load_lstm():
+    global _LSTM_MODEL, _LSTM_LABELS, _LSTM_ALIASES, _LSTM_SEQ_LEN, _LSTM_FEAT_DIM, _LSTM_LOAD_ATTEMPTED
+    if _LSTM_LOAD_ATTEMPTED:
+        return _LSTM_MODEL
+    _LSTM_LOAD_ATTEMPTED = True
+
+    models_dir = _Path(__file__).resolve().parent.parent.parent / "models"
+    h5 = models_dir / "lstm_sign.h5"
+    meta = models_dir / "lstm_labels.json"
+    if not h5.exists() or not meta.exists():
+        return None
+
+    try:
+        import tensorflow as tf  # noqa
+        from tensorflow.keras.models import load_model
+        _LSTM_MODEL = load_model(str(h5), compile=False)
+        info = _json.loads(meta.read_text())
+        _LSTM_LABELS = info["labels"]
+        _LSTM_ALIASES = info.get("aliases", {})
+        _LSTM_SEQ_LEN = int(info.get("seq_len", 16))
+        _LSTM_FEAT_DIM = int(info.get("feat_dim", 19))
+    except Exception as e:
+        print(f"[sign_classifier] LSTM load failed: {e}")
+        _LSTM_MODEL = None
+    return _LSTM_MODEL
+
+
+def _normalize_seq(seq: list[list[list[float]]]) -> np.ndarray:
+    """Convert a list of per-frame 21-landmark arrays into an (SEQ_LEN, feat_dim) batch."""
+    feats = []
+    for frame in seq:
+        if len(frame) < 21:
+            continue
+        f = _extract_features(frame)
+        n = np.linalg.norm(f)
+        feats.append(f / n if n > 1e-6 else f)
+    if not feats:
+        return np.zeros((_LSTM_SEQ_LEN, _LSTM_FEAT_DIM), dtype=np.float32)
+
+    arr = np.stack(feats).astype(np.float32)
+    # resample to SEQ_LEN via even-step indexing
+    if len(arr) != _LSTM_SEQ_LEN:
+        idx = np.linspace(0, len(arr) - 1, _LSTM_SEQ_LEN).round().astype(int)
+        arr = arr[idx]
+    return arr
+
+
+def classify_sequence(
+    frames: list[list[list[float]]],
+    threshold: float = 0.55,
+) -> Optional[str]:
+    """Classify a sequence of per-frame 21-landmark arrays using the LSTM.
+    Falls back to single-frame classification on the last frame if no model is loaded.
+    """
+    model = _load_lstm()
+    if model is None:
+        return classify_sign(frames[-1] if frames else [], threshold=0.82)
+
+    x = _normalize_seq(frames)[None, ...]  # (1, SEQ_LEN, feat_dim)
+    probs = model.predict(x, verbose=0)[0]
+    top = int(np.argmax(probs))
+    conf = float(probs[top])
+    if conf < threshold:
+        return None
+    return _LSTM_LABELS[top]

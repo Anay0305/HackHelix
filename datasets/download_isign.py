@@ -14,6 +14,14 @@ from datasets import load_dataset
 OUT_DIR = Path(__file__).parent / "videos"
 MAX_PER_GLOSS = 5  # enough to pick representative frames; raise for better quality
 
+# Only download these glosses (matches backend/src/services/pose_lookup.py BUILTIN_POSES).
+# Set to None to download everything (huge — 118k videos).
+GLOSS_WHITELIST: set[str] | None = {
+    "HELLO", "ME", "YOU", "GOOD", "YES", "NO", "WANT", "HELP", "STOP",
+    "UNDERSTAND", "WATER", "EAT", "SLEEP", "COME", "GO", "NAME", "WHAT",
+    "THANK_YOU", "PLEASE", "KNOW", "NOT", "CAN", "WHERE", "HERE", "OKAY",
+}
+
 
 def download_video(url: str, dest: Path) -> bool:
     try:
@@ -52,6 +60,8 @@ def main():
 
     for sample in ds:
         gloss = str(sample[gloss_col]).upper().strip()
+        if GLOSS_WHITELIST is not None and gloss not in GLOSS_WHITELIST:
+            continue
         if seen.get(gloss, 0) >= MAX_PER_GLOSS:
             continue
 

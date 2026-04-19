@@ -15,7 +15,7 @@ import base64
 import json
 import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from src.services.sign_classifier import classify_sign
+from src.services.sign_classifier import classify_sign, classify_sequence
 from src.services.sentence_former import gloss_to_sentence
 from src.services.elevenlabs_client import synthesize
 
@@ -48,6 +48,8 @@ async def isl_websocket(ws: WebSocket):
     hold_start: float | None = None
     last_classified: str | None = None
     cooldown_until = 0.0  # prevent same sign repeating instantly
+    frame_window: list[list[list[float]]] = []
+    FRAME_WINDOW_MAX = 24
 
     flush_task: asyncio.Task | None = None
 
@@ -104,7 +106,12 @@ async def isl_websocket(ws: WebSocket):
             if not landmarks:
                 prev_landmarks = []
                 hold_start = None
+                frame_window.clear()
                 continue
+
+            frame_window.append(landmarks)
+            if len(frame_window) > FRAME_WINDOW_MAX:
+                frame_window.pop(0)
 
             delta = _landmark_delta(prev_landmarks, landmarks)
             prev_landmarks = landmarks
@@ -115,7 +122,7 @@ async def isl_websocket(ws: WebSocket):
                     hold_start = now
                 elif (now - hold_start) >= HOLD_DURATION and now > cooldown_until:
                     # Sign is held long enough — classify
-                    sign = classify_sign(landmarks)
+                    sign = classify_sequence(frame_window) if len(frame_window) >= 4 else classify_sign(landmarks)
                     if sign and sign != last_classified:
                         last_classified = sign
                         last_sign_time = now

@@ -24,6 +24,7 @@ backend/.env
 frontend/.env.local
 frontend-old/.env.local
 
+
 # Editor / IDE
 .idea/
 .vscode/*

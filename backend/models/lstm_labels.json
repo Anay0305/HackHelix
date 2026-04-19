@@ -1,0 +1,36 @@
+{
+  "labels": [
+    "COME",
+    "EAT",
+    "GOOD",
+    "HELLO",
+    "HELP",
+    "ME",
+    "NAME",
+    "PLEASE"
+  ],
+  "aliases": {
+    "COME": "COME",
+    "EAT": "EAT",
+    "GO": "COME",
+    "GOOD": "GOOD",
+    "HELLO": "HELLO",
+    "HELP": "HELP",
+    "KNOW": "COME",
+    "ME": "ME",
+    "NAME": "NAME",
+    "NO": "EAT",
+    "PLEASE": "PLEASE",
+    "SLEEP": "PLEASE",
+    "STOP": "PLEASE",
+    "THANK_YOU": "PLEASE",
+    "UNDERSTAND": "NAME",
+    "WANT": "PLEASE",
+    "WATER": "NAME",
+    "WHAT": "PLEASE",
+    "YES": "HELP",
+    "YOU": "COME"
+  },
+  "seq_len": 16,
+  "feat_dim": 19
+}

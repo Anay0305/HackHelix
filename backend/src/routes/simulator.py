@@ -21,7 +21,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
 import os
 
-from src.services.sign_classifier import classify_sign
+from src.services.sign_classifier import classify_sign, classify_sequence
 from src.services.sentence_former import gloss_to_sentence
 from src.services.isl_grammar import text_to_gloss
 from src.services.elevenlabs_client import synthesize
@@ -85,6 +85,9 @@ async def simulator_websocket(ws: WebSocket):
     last_classified: str | None = None
     cooldown_until = 0.0
     flush_task: asyncio.Task | None = None
+    # rolling window of recent landmark frames for the LSTM
+    frame_window: list[list[list[float]]] = []
+    FRAME_WINDOW_MAX = 24
 
     # ─────────────────────────────────────────────────────────────────────
 
@@ -241,12 +244,31 @@ async def simulator_websocket(ws: WebSocket):
                 mode = data.get("mode")
                 sample_rate = data.get("sampleRate", DEFAULT_SAMPLE_RATE)
                 if mode == "speech2isl":
-                    await init_deepgram(sample_rate)
+                    # Only open Deepgram when client intends to stream audio
+                    # (voice mode sends sampleRate; text mode doesn't)
+                    if data.get("sampleRate") is not None:
+                        await init_deepgram(sample_rate)
                     await send({"type": "log", "level": "info",
                                 "msg": "speech2isl ready", "latencyMs": 0})
                 elif mode == "isl2speech":
                     await send({"type": "log", "level": "info",
                                 "msg": "isl2speech ready", "latencyMs": 0})
+                continue
+
+            # ── speech2isl: direct text input ─────────────────────────────
+            if msg_type == "text" and mode == "speech2isl":
+                text = (data.get("payload") or "").strip()
+                if not text:
+                    continue
+                t0 = int(time.time() * 1000)
+                await send({
+                    "type":        "transcript",
+                    "partial":     False,
+                    "text":        text,
+                    "confidence":  1.0,
+                    "timestampMs": t0,
+                })
+                asyncio.create_task(handle_final_transcript(text, t0))
                 continue
 
             # ── speech2isl: audio chunk ───────────────────────────────────
@@ -280,6 +302,10 @@ async def simulator_websocket(ws: WebSocket):
                 landmarks = _unflatten(right_flat)
                 now = time.time()
 
+                frame_window.append(landmarks)
+                if len(frame_window) > FRAME_WINDOW_MAX:
+                    frame_window.pop(0)
+
                 delta = _landmark_delta(prev_landmarks, landmarks)
                 prev_landmarks = landmarks
 
@@ -287,7 +313,7 @@ async def simulator_websocket(ws: WebSocket):
                     if hold_start is None:
                         hold_start = now
                     elif (now - hold_start) >= HOLD_DURATION and now > cooldown_until:
-                        sign = classify_sign(landmarks)
+                        sign = classify_sequence(frame_window) if len(frame_window) >= 4 else classify_sign(landmarks)
                         if sign and sign != last_classified:
                             last_classified = sign
                             cooldown_until = now + 0.8
@@ -307,6 +333,8 @@ async def simulator_websocket(ws: WebSocket):
                 else:
                     hold_start = None
                     last_classified = None
+
+                continue
 
     except WebSocketDisconnect:
         pass
