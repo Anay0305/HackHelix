@@ -14,7 +14,7 @@ Output: backend/models/lstm_sign.h5
 
 Feature extraction:
     21 hand landmarks × 3 (x, y, z) = 63-dim per frame
-    Normalised: subtract wrist, divide by wrist→middle-MCP distance
+    Normalised: subtract wrist, divide by wrist->middle-MCP distance
     Uses dominant hand (right preferred, else left)
 """
 
@@ -25,9 +25,11 @@ from pathlib import Path
 
 import numpy as np
 
-POSES_DIR  = Path(__file__).parent / "poses"
-MODELS_DIR = Path(__file__).parent.parent / "backend" / "models"
-SEQ_LEN    = 30   # frames per sequence (matches collect_webcam.py)
+POSES_DIR           = Path(__file__).parent / "poses"
+POSES_INCLUDE_DIR   = Path(__file__).parent / "poses_include"    # INCLUDE-50 videos extracted
+POSES_SYNTHETIC_DIR = Path(__file__).parent / "poses_synthetic"  # Synthetic from BUILTIN_POSES
+MODELS_DIR        = Path(__file__).parent.parent / "backend" / "models"
+SEQ_LEN    = 30   # frames per sequence
 FEAT_DIM   = 63   # 21 landmarks × 3
 
 
@@ -35,10 +37,15 @@ FEAT_DIM   = 63   # 21 landmarks × 3
 
 def _normalize(landmarks: list) -> np.ndarray:
     """
-    21 landmarks → 63-dim normalised vector.
-    Zero-centres on wrist; scales by wrist→middle-MCP distance.
+    21 landmarks -> 63-dim normalised vector.
+    Accepts both [[x,y,z], ...] lists and [{x,y,z}, ...] dicts.
+    Zero-centres on wrist; scales by wrist->middle-MCP distance.
     """
-    pts = np.array(landmarks, dtype=np.float32)   # (21, 3)
+    if landmarks and isinstance(landmarks[0], dict):
+        raw = [[d["x"], d["y"], d.get("z", 0.0)] for d in landmarks]
+    else:
+        raw = landmarks
+    pts = np.array(raw, dtype=np.float32)   # (21, 3)
     wrist = pts[0].copy()
     pts -= wrist
     scale = float(np.linalg.norm(pts[9])) + 1e-6  # middle-MCP is index 9
@@ -77,21 +84,16 @@ def extract_features(seq: list) -> np.ndarray | None:
 
 # ── Dataset loading ───────────────────────────────────────────────────────────
 
-def load_dataset(min_samples: int = 3):
-    X, y_raw = [], []
-    signs = sorted([d.name for d in POSES_DIR.iterdir() if d.is_dir()])
-
-    if not signs:
-        print(f"[train] No sign folders found in {POSES_DIR}")
-        sys.exit(1)
-
-    print(f"[train] Found {len(signs)} signs: {', '.join(signs)}")
-
-    kept_signs = []
+def _load_from_dir(sign_dir_root: Path, min_samples: int) -> tuple[list, list, list]:
+    """Load pose JSON files from a directory tree. Returns (X, y_raw, kept_signs)."""
+    X, y_raw, kept_signs = [], [], []
+    if not sign_dir_root.exists():
+        return X, y_raw, kept_signs
+    signs = sorted([d.name for d in sign_dir_root.iterdir() if d.is_dir()])
     for sign in signs:
-        sign_dir = POSES_DIR / sign
+        sign_dir = sign_dir_root / sign
         files = sorted(sign_dir.glob("*.json"))
-        seqs  = []
+        seqs = []
         for f in files:
             try:
                 seq = json.loads(f.read_text())
@@ -102,23 +104,56 @@ def load_dataset(min_samples: int = 3):
                     seqs.append(feat)
             except Exception as e:
                 print(f"  [warn] {f.name}: {e}")
-
-        print(f"  {sign:<16} {len(seqs):>4} sequences  ({len(files)} files)")
-
         if len(seqs) < min_samples:
-            print(f"  [skip] {sign}: only {len(seqs)} valid sequences (need {min_samples})")
             continue
-
         for feat in seqs:
             X.append(feat)
             y_raw.append(sign)
         kept_signs.append(sign)
+    return X, y_raw, kept_signs
 
-    if not kept_signs:
-        print("[train] No sign has enough samples. Record more data first.")
+
+def load_dataset(min_samples: int = 3):
+    """Load from poses/ (hand-recorded), poses_include/ (INCLUDE-50), and poses_synthetic/."""
+    X, y_raw, kept = [], [], []
+
+    # Existing hand-recorded signs
+    x1, y1, k1 = _load_from_dir(POSES_DIR, min_samples)
+    X.extend(x1); y_raw.extend(y1); kept.extend(k1)
+
+    # INCLUDE-50 extracted signs
+    x2, y2, k2 = _load_from_dir(POSES_INCLUDE_DIR, min_samples)
+    X.extend(x2); y_raw.extend(y2)
+    for s in k2:
+        if s not in kept:
+            kept.append(s)
+
+    # Synthetic signs from BUILTIN_POSES
+    x3, y3, k3 = _load_from_dir(POSES_SYNTHETIC_DIR, min_samples)
+    X.extend(x3); y_raw.extend(y3)
+    for s in k3:
+        if s not in kept:
+            kept.append(s)
+
+    if not kept:
+        print("[train] No sign has enough samples.")
+        print(f"  - Put hand-recorded signs in: {POSES_DIR}")
+        print(f"  - Or run: python generate_synthetic_poses.py")
+        print(f"  - Or run: python extract_include_poses.py")
         sys.exit(1)
 
-    return np.array(X, dtype=np.float32), y_raw, kept_signs
+    # Stats
+    src1 = set(k1); src2 = set(k2); src3 = set(k3)
+    print(f"[train] {len(kept)} signs  "
+          f"({len(src1)} hand-rec, {len(src2)} INCLUDE, {len(src3)} synthetic):")
+    for s in sorted(kept):
+        tag = "[SYN]" if s in src3 and s not in src1 and s not in src2 else \
+              "[INC]" if s in src2 and s not in src1 else \
+              "[REC]" if s in src1 else "[MIX]"
+        n = sum(1 for r in y_raw if r == s)
+        print(f"  {tag} {s:<16} {n:>4} sequences")
+
+    return np.array(X, dtype=np.float32), y_raw, sorted(kept)
 
 
 # ── Model ─────────────────────────────────────────────────────────────────────
@@ -164,7 +199,7 @@ def train(epochs: int, val_split: float):
     )
     print(f"        Train: {len(X_tr)}  Val: {len(X_val)}")
 
-    print(f"\n[train] Building model (LSTM 64→128→64, Dense 64→{len(labels)}) ...")
+    print(f"\n[train] Building model (LSTM 64->128->64, Dense 64->{len(labels)}) ...")
     model = build_model(len(labels), SEQ_LEN, FEAT_DIM)
     model.summary()
 
@@ -199,8 +234,8 @@ def train(epochs: int, val_split: float):
         "val_acc":  round(val_acc, 4),
     }, indent=2))
 
-    print(f"\n[train] Saved model  → {h5_path}")
-    print(f"[train] Saved labels → {meta_path}")
+    print(f"\n[train] Saved model  -> {h5_path}")
+    print(f"[train] Saved labels -> {meta_path}")
     print(f"\nLabels ({len(labels)}): {labels}")
     print("\nNext step:")
     print("  cd .. && uvicorn backend.src.main:app --reload --port 8000")

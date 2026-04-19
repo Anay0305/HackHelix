@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Reset Sonorous cache</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    font-family: system-ui, sans-serif;
+    background: #0b0a12;
+    color: #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .card {
+    max-width: 520px;
+    padding: 32px;
+    border: 1px solid #27272a;
+    border-radius: 16px;
+    background: linear-gradient(180deg, #14121e, #0b0a12);
+  }
+  h1 { margin: 0 0 8px; font-size: 20px; }
+  p  { color: #9ca3af; line-height: 1.5; }
+  pre {
+    background: #1f2937;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    overflow: auto;
+    max-height: 180px;
+  }
+  a {
+    display: inline-block;
+    margin-top: 16px;
+    padding: 10px 16px;
+    background: linear-gradient(90deg, #8B5CF6, #EC4899);
+    color: white;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .ok   { color: #10b981; }
+  .warn { color: #f59e0b; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Purging stale Sonorous cache…</h1>
+    <p>Unregistering every service worker (except MSW) and clearing every
+       Cache Storage bucket. After this runs once, the site stops serving
+       the old avatar and old JS bundles.</p>
+    <pre id="log">starting…</pre>
+    <a href="/" id="home" style="display:none">Back to app</a>
+  </div>
+
+<script>
+(async () => {
+  const log = document.getElementById("log");
+  const home = document.getElementById("home");
+  const lines = [];
+  const say = (s, cls) => {
+    lines.push((cls ? '['+cls+'] ' : '') + s);
+    log.textContent = lines.join('\n');
+  };
+
+  try {
+    if ("serviceWorker" in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      say("service workers found: " + regs.length);
+      for (const reg of regs) {
+        const url = (reg.active && reg.active.scriptURL) ||
+                    (reg.installing && reg.installing.scriptURL) ||
+                    (reg.waiting && reg.waiting.scriptURL) || "";
+        if (url.includes("mockServiceWorker")) {
+          say("- kept " + url + " (MSW)");
+          continue;
+        }
+        const ok = await reg.unregister();
+        say("- " + (ok ? "unregistered" : "failed  ") + " " + (url || reg.scope));
+      }
+    } else {
+      say("this browser has no service workers", "warn");
+    }
+
+    if ("caches" in window) {
+      const names = await caches.keys();
+      say("cache buckets: " + names.length);
+      for (const n of names) {
+        if (n.includes("msw")) {
+          say("- kept " + n + " (MSW)");
+          continue;
+        }
+        await caches.delete(n);
+        say("- deleted " + n);
+      }
+    }
+
+    try {
+      localStorage.clear();
+      say("localStorage cleared");
+    } catch (_) { /* ignore */ }
+
+    try {
+      sessionStorage.clear();
+      say("sessionStorage cleared");
+    } catch (_) { /* ignore */ }
+
+    say("done — loading fresh app in 1.5s", "ok");
+    home.style.display = "inline-block";
+    setTimeout(() => { window.location.replace("/"); }, 1500);
+  } catch (e) {
+    say("error: " + (e && e.message), "warn");
+  }
+})();
+</script>
+</body>
+</html>

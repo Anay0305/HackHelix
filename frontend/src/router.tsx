@@ -11,6 +11,7 @@ import { CallLandingPage } from "@/features/call/pages/CallLandingPage";
 import { CallPage } from "@/features/call/pages/CallPage";
 import { LearnHomePage } from "@/features/learning/pages/LearnHomePage";
 import { LessonPage } from "@/features/learning/pages/LessonPage";
+import { DictionaryPage } from "@/features/learning/pages/DictionaryPage";
 import { BenefitsPage } from "@/features/benefits/pages/BenefitsPage";
 import { DebuggerPage } from "@/features/debugger/pages/DebuggerPage";
 import { SettingsPage } from "@/features/settings/pages/SettingsPage";
@@ -72,6 +73,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <LearnHomePage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "/learn/dictionary",
+        element: (
+          <ProtectedRoute>
+            <DictionaryPage />
           </ProtectedRoute>
         ),
       },

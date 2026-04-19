@@ -143,6 +143,20 @@ export function LearnHomePage() {
         {/* Activity heatmap */}
         <ActivityHeatmap dailyXpLog={dailyXpLog} weeks={12} />
 
+        {/* Sign Dictionary CTA */}
+        <Link
+          to="/learn/dictionary"
+          className="flex items-center justify-between glass rounded-xl2 px-4 py-3 border border-brand-purple/20 hover:border-brand-purple/50 hover:shadow-glow-brand transition-all group"
+        >
+          <div>
+            <p className="font-semibold text-ink text-sm">Sign Dictionary</p>
+            <p className="text-xs text-muted mt-0.5">Browse all ISL signs — tap to see the avatar sign each one</p>
+          </div>
+          <span className="text-brand-purple font-semibold text-sm group-hover:translate-x-1 transition-transform">
+            Explore →
+          </span>
+        </Link>
+
         {/* Unit label */}
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wider text-brand-purple">

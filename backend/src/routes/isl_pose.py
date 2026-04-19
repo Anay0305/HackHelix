@@ -19,6 +19,8 @@ tokens. Drives the Learn tab's "watch the sentence" demo from a prompt.
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+import numpy as np
+
 from src.services.isl_grammar import text_to_gloss
 from src.services.pose_lookup import get_pose
 
@@ -28,8 +30,10 @@ MS_PER_FRAME = 400
 
 
 def _extract_arm(frame: dict) -> dict:
-    """Keep only the 6 arm landmarks the frontend retargets."""
+    """Extract arm landmarks + 21-pt hand shapes for full avatar retargeting."""
     b = frame["body"]
+    rh = frame.get("rightHand", [])
+    lh = frame.get("leftHand",  [])
     return {
         "rs": {"x": b[11]["x"], "y": b[11]["y"]},
         "re": {"x": b[13]["x"], "y": b[13]["y"]},
@@ -37,6 +41,8 @@ def _extract_arm(frame: dict) -> dict:
         "ls": {"x": b[12]["x"], "y": b[12]["y"]},
         "le": {"x": b[14]["x"], "y": b[14]["y"]},
         "lw": {"x": b[16]["x"], "y": b[16]["y"]},
+        "rightHand": [{"x": lm["x"], "y": lm["y"]} for lm in rh],
+        "leftHand":  [{"x": lm["x"], "y": lm["y"]} for lm in lh],
     }
 
 
@@ -84,4 +90,86 @@ async def pose_from_text(req: _TextReq):
         "gloss": result.get("gloss", []),
         "nmm": result.get("nmm", "none"),
         **seq,
+    }
+
+
+# ── /isl/grade — real-time sign quality scoring ───────────────────────────────
+
+def _normalize_hand(landmarks: list) -> np.ndarray | None:
+    """Wrist-center + scale-normalize 21 hand landmarks → (21,3) float32."""
+    if len(landmarks) < 21:
+        return None
+    pts = np.array([[lm["x"], lm["y"], lm.get("z", 0.0)] for lm in landmarks],
+                   dtype=np.float32)
+    wrist = pts[0].copy()
+    pts -= wrist
+    scale = float(np.linalg.norm(pts[9])) + 1e-6
+    return pts / scale
+
+
+_FINGERS = {
+    "thumb":  [1, 2, 3, 4],
+    "index":  [5, 6, 7, 8],
+    "middle": [9, 10, 11, 12],
+    "ring":   [13, 14, 15, 16],
+    "pinky":  [17, 18, 19, 20],
+}
+
+
+def _finger_scores(ref: np.ndarray, usr: np.ndarray) -> dict[str, int]:
+    scores = {}
+    for name, ids in _FINGERS.items():
+        ref_v = ref[ids[-1]] - ref[ids[0]]
+        usr_v = usr[ids[-1]] - usr[ids[0]]
+        n_ref = np.linalg.norm(ref_v)
+        n_usr = np.linalg.norm(usr_v)
+        if n_ref < 1e-6 or n_usr < 1e-6:
+            scores[name] = 50
+            continue
+        cos = float(np.dot(ref_v, usr_v) / (n_ref * n_usr))
+        scores[name] = max(0, int(((cos + 1) / 2) * 100))
+    return scores
+
+
+class _GradeReq(BaseModel):
+    sign: str
+    userHand: list  # 21 landmarks [{x,y,z?}]
+
+
+@router.post("/grade")
+async def grade_sign(req: _GradeReq):
+    """
+    Score how closely the user's hand shape matches the reference sign.
+
+    Request:  { "sign": "HELLO", "userHand": [{x,y,z?}×21] }
+    Response: { "score": 0-100, "fingerScores": {thumb,index,...}, "pass": bool }
+
+    Used by the SignAlong exercise to give real-time grading feedback.
+    """
+    frames = get_pose(req.sign.upper())
+    if not frames:
+        return {"score": 0, "fingerScores": {}, "pass": False, "error": "sign not found"}
+
+    # Find the keyframe with the richest hand data for reference
+    ref_hand = None
+    for frame in frames:
+        rh = frame.get("rightHand", [])
+        if len(rh) >= 21:
+            ref_hand = rh
+            break
+    if ref_hand is None:
+        return {"score": 50, "fingerScores": {}, "pass": False, "error": "no hand ref"}
+
+    ref_pts = _normalize_hand(ref_hand)
+    usr_pts = _normalize_hand(req.userHand)
+
+    if ref_pts is None or usr_pts is None:
+        return {"score": 0, "fingerScores": {}, "pass": False, "error": "bad landmarks"}
+
+    finger_scores = _finger_scores(ref_pts, usr_pts)
+    overall = int(np.mean(list(finger_scores.values())))
+    return {
+        "score": overall,
+        "fingerScores": finger_scores,
+        "pass": overall >= 65,
     }

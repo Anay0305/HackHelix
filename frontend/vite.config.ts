@@ -31,8 +31,16 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,svg,png,woff2,glb}"],
+        // Exclude .glb from precache so swapping model.glb isn't shadowed by
+        // the service worker holding a stale copy. The avatar URL also carries
+        // a ?v= bust-param, so runtime fetches always hit the current file.
+        globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
         maximumFileSizeToCacheInBytes: 20 * 1024 * 1024,
+      },
+      devOptions: {
+        // Disable the service worker in `npm run dev` so model swaps are
+        // instantly visible and you don't need to clear site data.
+        enabled: false,
       },
     }),
   ],

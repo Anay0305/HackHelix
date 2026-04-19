@@ -86,6 +86,8 @@ export function useWebcamCapture() {
         }
         if (hasHand) {
           getSocket().send({ type: "landmarks", seq: seqRef.current++, frame });
+          // Broadcast to any local consumer (e.g. useSignGrader) without going through WS
+          window.dispatchEvent(new CustomEvent("mediapipe-frame", { detail: { frame } }));
         }
       });
 

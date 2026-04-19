@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/Badge";
 import { AvatarStage } from "@/features/simulator/components/avatar/AvatarStage";
 import { HeartsBar } from "../components/HeartsBar";
 import { useLessonPose } from "../hooks/useLessonPose";
+import { useSignGrader } from "../hooks/useSignGrader";
+import { HandOverlay } from "../components/HandOverlay";
 import { cn } from "@/lib/cn";
 import type { Exercise } from "@/api/types";
 
@@ -29,7 +31,6 @@ export function LessonPage() {
   const completeLesson = useLearningStore((s) => s.completeLesson);
   const awardXp = useLearningStore((s) => s.awardXp);
   const loseHeart = useLearningStore((s) => s.loseHeart);
-  const hearts = useLearningStore((s) => s.hearts);
   const progressQuest = useLearningStore((s) => s.progressQuest);
 
   const { data: lessons } = useQuery({
@@ -312,16 +313,46 @@ function SignAlong({
   exercise: Exercise;
   onComplete: (correct: boolean) => void;
 }) {
-  const [attempted, setAttempted] = useState(false);
+  const signId = exercise.signClip?.toUpperCase();
+  const grader = useSignGrader(signId);
 
-  // Loop the demonstrated sign so the user can watch it multiple times.
-  useLessonPose(exercise.signClip ? [exercise.signClip] : undefined, true);
+  // Loop the demonstrated sign so the user can watch it while the cam is off.
+  useLessonPose(grader.isActive ? undefined : (exercise.signClip ? [exercise.signClip] : undefined), !grader.isActive);
+
+  // Auto-advance when the user holds the correct pose for 1.5s
+  useEffect(() => {
+    if (grader.sustained) {
+      grader.stop();
+      toast.success(randomPhrase(CORRECT_PHRASES));
+      setTimeout(() => onComplete(true), 600);
+    }
+  }, [grader.sustained]);
 
   return (
     <div className="grid md:grid-cols-[1fr_0.9fr] gap-5">
-      <div className="h-[360px] md:h-auto md:min-h-[420px]">
-        <AvatarStage />
+      {/* Left: avatar demo or webcam with overlay */}
+      <div className="h-[360px] md:h-auto md:min-h-[420px] relative rounded-2xl overflow-hidden">
+        {grader.isActive ? (
+          <>
+            <video
+              ref={grader.videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover"
+              style={{ transform: "scaleX(-1)" }}
+            />
+            <HandOverlay
+              landmarks={grader.landmarks}
+              fingerScores={grader.fingerScores}
+              score={grader.score}
+            />
+          </>
+        ) : (
+          <AvatarStage />
+        )}
       </div>
+
       <div className="space-y-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider text-brand-purple">
@@ -329,41 +360,73 @@ function SignAlong({
           </p>
           <h2 className="text-xl font-semibold mt-1">{exercise.prompt}</h2>
           <p className="text-sm text-muted mt-1">
-            Watch the avatar, then tap &ldquo;I got it&rdquo; when you&apos;ve practised.
+            {grader.isActive
+              ? "Hold the sign steady — skeleton turns green when correct!"
+              : "Watch the avatar, then tap Try it to grade your sign via webcam."}
           </p>
         </div>
 
-        {attempted ? (
-          <div className="rounded-xl2 border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm">
-            <div className="flex items-center gap-2 text-emerald-300 font-semibold">
-              <Sparkles className="h-4 w-4" /> Well done!
+        {/* Score bar when grading */}
+        {grader.isActive && (
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs text-muted">
+              <span>Match score</span>
+              <span className={cn(grader.score >= 65 ? "text-emerald-300" : "text-muted")}>
+                {grader.score}%
+              </span>
             </div>
-            <p className="text-muted mt-1">
-              Real sign-quality scoring needs webcam recognition from the
-              backend. For this demo, self-assessment is fine.
-            </p>
+            <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+              <motion.div
+                className={cn(
+                  "h-full rounded-full",
+                  grader.score >= 65 ? "bg-emerald-400" : grader.score >= 40 ? "bg-amber-400" : "bg-red-400",
+                )}
+                animate={{ width: `${grader.score}%` }}
+                transition={{ duration: 0.25 }}
+              />
+            </div>
+            {/* Per-finger scores */}
+            <div className="flex gap-1.5 flex-wrap mt-1">
+              {Object.entries(grader.fingerScores).map(([f, s]) => (
+                <span
+                  key={f}
+                  className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                  style={{
+                    background: s >= 70 ? "rgba(16,185,129,0.2)" : s >= 40 ? "rgba(245,158,11,0.2)" : "rgba(239,68,68,0.2)",
+                    color: s >= 70 ? "#10b981" : s >= 40 ? "#f59e0b" : "#ef4444",
+                  }}
+                >
+                  {f} {s}%
+                </span>
+              ))}
+            </div>
           </div>
-        ) : null}
+        )}
+
+        {grader.error && (
+          <p className="text-xs text-red-400">{grader.error}</p>
+        )}
 
         <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => setAttempted(false)}
-            disabled={!attempted}
-          >
-            Watch again
-          </Button>
-          <Button
-            onClick={() => {
-              if (!attempted) {
-                setAttempted(true);
-              } else {
-                onComplete(true);
-              }
-            }}
-          >
-            {attempted ? "I got it" : "Try it"}
-          </Button>
+          {grader.isActive ? (
+            <>
+              <Button variant="secondary" onClick={() => grader.stop()}>
+                Watch again
+              </Button>
+              <Button onClick={() => { grader.stop(); onComplete(true); }}>
+                Skip
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button onClick={() => grader.start()}>
+                Try it (webcam)
+              </Button>
+              <Button variant="secondary" onClick={() => onComplete(true)}>
+                Skip
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </div>
