@@ -47,8 +47,8 @@ def _synth_sequence(template_feats: np.ndarray, rng: np.random.Generator) -> np.
 def build_dataset():
     # Many glosses share the exact same template (placeholder fallbacks like
     # OPEN_HAND / POINT). Training N labels on identical features just teaches
-    # the model to spread probability mass across duplicates → low confidence.
-    # Dedupe first; store the full label→canonical map in lstm_labels.json so
+    # the model to spread probability mass across duplicates -> low confidence.
+    # Dedupe first; store the full label->canonical map in lstm_labels.json so
     # the runtime can resolve any gloss back to a predicted canonical label.
     canonical: dict[tuple, str] = {}
     aliases: dict[str, str] = {}

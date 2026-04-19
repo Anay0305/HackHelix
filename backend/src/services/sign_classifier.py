@@ -34,9 +34,9 @@ def _extensions(pts: np.ndarray) -> np.ndarray:
     5-element array: for each finger, ratio of tip-distance to MCP-distance
     from the wrist (in normalized space).
 
-    > 1.5  → clearly extended
-    1.1–1.5 → partially extended
-    < 1.1  → curled
+    > 1.5  -> clearly extended
+    1.1–1.5 -> partially extended
+    < 1.1  -> curled
     """
     exts = []
     for tip_i, mcp_i in zip(FINGER_TIP_IDS, FINGER_MCP_IDS):

@@ -6,6 +6,7 @@ build/
 .next/
 .cache/
 *.local
+.pptx
 
 # Python
 __pycache__/

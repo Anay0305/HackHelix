@@ -3,16 +3,16 @@ WebSocket endpoint: /ws/hear
 
 Frontend sends final Deepgram transcripts.
 Backend:
-  1. Runs ISL grammar (Claude) → gloss tokens + NMM
+  1. Runs ISL grammar (Claude) -> gloss tokens + NMM
   2. Sends gloss immediately for UI display
   3. Streams pose frames for each token so the avatar animates
 
 Message flow:
-  Frontend → {"text": "What is your name?"}
-  Backend  → {"type": "gloss",  "tokens": ["YOU","NAME","WHAT"], "nmm": "question"}
-  Backend  → {"type": "frame",  "frame": {body,rightHand,leftHand}, "nmm": "question", "word": "YOU"}
-  Backend  → {"type": "frame",  ...}   (one per keyframe, 550ms apart)
-  Backend  → {"type": "error",  "message": "..."} on failure
+  Frontend -> {"text": "What is your name?"}
+  Backend  -> {"type": "gloss",  "tokens": ["YOU","NAME","WHAT"], "nmm": "question"}
+  Backend  -> {"type": "frame",  "frame": {body,rightHand,leftHand}, "nmm": "question", "word": "YOU"}
+  Backend  -> {"type": "frame",  ...}   (one per keyframe, 550ms apart)
+  Backend  -> {"type": "error",  "message": "..."} on failure
 """
 
 import asyncio

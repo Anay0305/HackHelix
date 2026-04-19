@@ -7,7 +7,7 @@ Each SignFrame has:
   leftHand: 21 landmarks (MediaPipe Hand)
 
 Coordinates: MediaPipe normalized [0,1], origin top-left.
-landmarkToVec3 on frontend: x→(x-0.5)*s, y→-(y-0.5)*s
+landmarkToVec3 on frontend: x->(x-0.5)*s, y->-(y-0.5)*s
 
 When pose_db.json (from iSign dataset) is present it takes priority;
 these hardcoded poses are the fallback for the 27 common signs.
@@ -194,11 +194,11 @@ def get_pose(word: str) -> list:
     key = word.upper()
     if key in db:
         frames = db[key]
-        print(f"[pose] '{key}' → pose_db.json ({len(frames)} frames)")
+        print(f"[pose] '{key}' -> pose_db.json ({len(frames)} frames)")
         return frames
     if key in BUILTIN_POSES:
         frames = BUILTIN_POSES[key]
-        print(f"[pose] '{key}' → builtin ({len(frames)} frames)")
+        print(f"[pose] '{key}' -> builtin ({len(frames)} frames)")
         return frames
-    print(f"[pose] '{key}' → GENERIC fallback (not in db or builtins)")
+    print(f"[pose] '{key}' -> GENERIC fallback (not in db or builtins)")
     return GENERIC

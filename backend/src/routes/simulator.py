@@ -4,9 +4,9 @@ Unified WebSocket endpoint: /ws/simulator
 Speaks the typed ClientMsg / ServerMsg protocol defined in frontend/src/api/types.ts.
 
 Modes:
-  speech2isl — audio_chunk (base64 PCM16) → Deepgram STT → ISL grammar → gloss + avatar_cue
+  speech2isl — audio_chunk (base64 PCM16) -> Deepgram STT -> ISL grammar -> gloss + avatar_cue
                Also runs: YAMNet (sound alerts) + SpeechBrain (emotion) in background
-  isl2speech — landmarks (HolisticFrame)  → sign classifier → sentence → ElevenLabs TTS
+  isl2speech — landmarks (HolisticFrame)  -> sign classifier -> sentence -> ElevenLabs TTS
 
 Extra message types emitted:
   alert   — {"type":"alert","alertType":str,"confidence":float,"label":str}

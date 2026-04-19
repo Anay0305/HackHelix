@@ -27,11 +27,11 @@ def _get_client() -> AsyncGroq:
 SYSTEM_PROMPT = """You convert English sentences into Indian Sign Language (ISL) gloss sequences.
 
 ISL grammar rules to apply:
-1. SOV order — move verb to end: "She drinks water" → SHE WATER DRINK
-2. Topic fronting — wh-word goes last: "What is your name?" → YOU NAME WHAT
+1. SOV order — move verb to end: "She drinks water" -> SHE WATER DRINK
+2. Topic fronting — wh-word goes last: "What is your name?" -> YOU NAME WHAT
 3. Drop function words — remove a/an/the, is/are/was/were/am, do/does/did
-4. Negation clause-finally — NOT goes last: "I don't know" → ME KNOW NOT
-5. Tense markers — "I ate" → TIME-PAST ME EAT, "I will go" → TIME-FUTURE ME GO
+4. Negation clause-finally — NOT goes last: "I don't know" -> ME KNOW NOT
+5. Tense markers — "I ate" -> TIME-PAST ME EAT, "I will go" -> TIME-FUTURE ME GO
 6. Use uppercase ISL gloss words
 
 Also output the NMM (non-manual marker):
