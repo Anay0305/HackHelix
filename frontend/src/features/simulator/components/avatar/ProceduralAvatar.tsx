@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import type { Group, Mesh } from "three";
 import { useSimulatorStore } from "@/store/simulatorStore";
+import type { ArmFrame } from "@/store/simulatorStore";
 
 /**
  * Bitmoji-style procedural humanoid.
@@ -28,6 +29,26 @@ export function ProceduralAvatar() {
     const cue = s.avatarCue;
     const sentiment = s.sentiment;
     const morphs = cue?.morphTargets ?? {};
+    const poseSeq = s.poseSequence;
+
+    // Resolve current arm frame from pose sequence
+    let armFrame: ArmFrame | null = null;
+    if (poseSeq && poseSeq.words.length > 0) {
+      const elapsed = performance.now() - poseSeq.startedAt;
+      const totalFrames = poseSeq.words.reduce((acc, w) => acc + w.frames.length, 0);
+      const totalDuration = totalFrames * poseSeq.msPerFrame;
+      if (elapsed < totalDuration) {
+        const frameIdx = Math.floor(elapsed / poseSeq.msPerFrame);
+        let remaining = frameIdx;
+        for (const word of poseSeq.words) {
+          if (remaining < word.frames.length) {
+            armFrame = word.frames[remaining];
+            break;
+          }
+          remaining -= word.frames.length;
+        }
+      }
+    }
 
     // Breathing idle
     if (root.current) {
@@ -81,45 +102,51 @@ export function ProceduralAvatar() {
       );
     }
 
-    // Arms
+    // Arms — pose-sequence driven when available, generic wiggle when live+cue, idle otherwise
     const wiggle = Math.sin(t * 4) * 0.08;
+    const lerpRate = armFrame ? 0.12 : 0.08;
+
     if (leftArm.current) {
-      const targetRotX =
-        isLive && cue ? -Math.PI / 2.4 + wiggle : -0.15 + Math.sin(t) * 0.02;
-      const targetRotZ =
-        isLive && cue ? 0.25 + Math.sin(t * 3) * 0.08 : 0.55;
-      leftArm.current.rotation.x = lerp(
-        leftArm.current.rotation.x,
-        targetRotX,
-        0.08,
-      );
-      leftArm.current.rotation.z = lerp(
-        leftArm.current.rotation.z,
-        targetRotZ,
-        0.08,
-      );
+      let targetRotX: number;
+      let targetRotZ: number;
+      if (armFrame) {
+        const dy = armFrame.lw.y - armFrame.ls.y;
+        const dx = armFrame.lw.x - armFrame.ls.x;
+        targetRotX = -0.947 + 2.49 * dy;
+        targetRotZ = 0.55 + 3.4 * dx;
+      } else if (isLive && cue) {
+        targetRotX = -Math.PI / 2.4 + wiggle;
+        targetRotZ = 0.25 + Math.sin(t * 3) * 0.08;
+      } else {
+        targetRotX = -0.15 + Math.sin(t) * 0.02;
+        targetRotZ = 0.55;
+      }
+      leftArm.current.rotation.x = lerp(leftArm.current.rotation.x, targetRotX, lerpRate);
+      leftArm.current.rotation.z = lerp(leftArm.current.rotation.z, targetRotZ, lerpRate);
     }
     if (rightArm.current) {
-      const targetRotX =
-        isLive && cue ? -Math.PI / 2.2 - wiggle : -0.15 + Math.sin(t) * 0.02;
-      const targetRotZ =
-        isLive && cue ? -0.25 - Math.sin(t * 3) * 0.08 : -0.55;
-      rightArm.current.rotation.x = lerp(
-        rightArm.current.rotation.x,
-        targetRotX,
-        0.08,
-      );
-      rightArm.current.rotation.z = lerp(
-        rightArm.current.rotation.z,
-        targetRotZ,
-        0.08,
-      );
+      let targetRotX: number;
+      let targetRotZ: number;
+      if (armFrame) {
+        const dy = armFrame.rw.y - armFrame.rs.y;
+        const dx = armFrame.rw.x - armFrame.rs.x;
+        targetRotX = -0.947 + 2.49 * dy;
+        targetRotZ = -0.55 + 3.4 * dx;
+      } else if (isLive && cue) {
+        targetRotX = -Math.PI / 2.2 - wiggle;
+        targetRotZ = -0.25 - Math.sin(t * 3) * 0.08;
+      } else {
+        targetRotX = -0.15 + Math.sin(t) * 0.02;
+        targetRotZ = -0.55;
+      }
+      rightArm.current.rotation.x = lerp(rightArm.current.rotation.x, targetRotX, lerpRate);
+      rightArm.current.rotation.z = lerp(rightArm.current.rotation.z, targetRotZ, lerpRate);
     }
     if (leftHand.current) {
-      leftHand.current.rotation.z = Math.sin(t * 6) * 0.25;
+      leftHand.current.rotation.z = armFrame ? 0 : Math.sin(t * 6) * 0.25;
     }
     if (rightHand.current) {
-      rightHand.current.rotation.z = -Math.sin(t * 6) * 0.25;
+      rightHand.current.rotation.z = armFrame ? 0 : -Math.sin(t * 6) * 0.25;
     }
   });
 

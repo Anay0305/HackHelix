@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { toast } from "sonner";
 import { getSocket } from "@/api/socket";
 import { useSimulatorStore } from "@/store/simulatorStore";
 import { useDebuggerStore } from "@/store/debuggerStore";
@@ -16,9 +17,10 @@ export function useSimulatorSocket() {
   const setRecognized   = useSimulatorStore((s) => s.setRecognized);
   const appendTts       = useSimulatorStore((s) => s.appendTts);
   const setLatency      = useSimulatorStore((s) => s.setLatency);
-  const setAlert        = useSimulatorStore((s) => s.setAlert);
-  const setEmotion      = useSimulatorStore((s) => s.setEmotion);
-  const mode            = useSimulatorStore((s) => s.mode);
+  const setAlert          = useSimulatorStore((s) => s.setAlert);
+  const setEmotion        = useSimulatorStore((s) => s.setEmotion);
+  const setPoseSequence   = useSimulatorStore((s) => s.setPoseSequence);
+  const mode              = useSimulatorStore((s) => s.mode);
 
   const pushLog        = useDebuggerStore((s) => s.pushLog);
   const setLastPayload = useDebuggerStore((s) => s.setLastPayload);
@@ -32,7 +34,15 @@ export function useSimulatorSocket() {
     const socket = getSocket();
     socket.connect();
 
-    const offStatus = socket.onStatus((s) => setWsStatus(s));
+    const offStatus = socket.onStatus((s) => {
+      setWsStatus(s);
+      if (s === "error") {
+        toast.error("WebSocket error — is the backend running on port 8000?", {
+          id: "ws-conn-error",
+          duration: 10_000,
+        });
+      }
+    });
     const offMsg = socket.onMessage((msg: ServerMsg) => {
       setLastPayload(msg);
 
@@ -95,17 +105,29 @@ export function useSimulatorSocket() {
           setEmotion({ emotion: msg.emotion, intensity: msg.intensity, morphTargets: msg.morphTargets });
           break;
 
+        case "pose_sequence":
+          setPoseSequence({
+            words: msg.words,
+            msPerFrame: msg.msPerFrame,
+            startedAt: performance.now(),
+          });
+          break;
+
         case "log":
           pushLog({ level: msg.level, msg: msg.msg, latencyMs: msg.latencyMs, meta: msg.meta });
           if (typeof msg.latencyMs === "number") {
             setLatency(msg.latencyMs);
             pushLatency(msg.latencyMs);
           }
+          if (msg.level === "warn") toast.warning(msg.msg);
           break;
 
-        case "error":
-          pushLog({ level: "error", msg: `${msg.code}: ${msg.msg}` });
+        case "error": {
+          const errText = `${msg.code}: ${msg.msg}`;
+          pushLog({ level: "error", msg: errText });
+          toast.error(errText, { duration: 8000 });
           break;
+        }
 
         case "pong":
           setLatency(performance.now() - msg.t);

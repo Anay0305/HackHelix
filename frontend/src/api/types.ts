@@ -149,6 +149,7 @@ export type SimulatorMode = "speech2isl" | "isl2speech";
 
 export type ClientMsg =
   | { type: "start"; mode: SimulatorMode; sessionId: string; sampleRate?: number }
+  | { type: "text"; payload: string }
   | { type: "audio_chunk"; seq: number; pcm16Base64: string }
   | { type: "landmarks"; seq: number; frame: HolisticFrame }
   | { type: "stop" }
@@ -199,6 +200,21 @@ export type ServerMsg =
       emotion: string;
       intensity: number;
       morphTargets: Record<string, number>;
+    }
+  | {
+      type: "pose_sequence";
+      words: Array<{
+        word: string;
+        frames: Array<{
+          rs: { x: number; y: number };
+          re: { x: number; y: number };
+          rw: { x: number; y: number };
+          ls: { x: number; y: number };
+          le: { x: number; y: number };
+          lw: { x: number; y: number };
+        }>;
+      }>;
+      msPerFrame: number;
     };
 
 export interface GlossToken {
