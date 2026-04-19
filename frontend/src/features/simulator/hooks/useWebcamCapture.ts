@@ -42,6 +42,18 @@ export function useWebcamCapture() {
       // Lazy-load MediaPipe Holistic
       const { Holistic } = await import("@mediapipe/holistic");
 
+      // MediaPipe's WASM emits stderr via emscripten _fd_write which browsers
+      // route to console.error. The messages are informational (TFLite
+      // delegate, XNNPACK init). Filter them so the real console stays useful.
+      const origError = console.error;
+      console.error = (...args: unknown[]) => {
+        const stack = new Error().stack ?? "";
+        if (stack.includes("holistic_solution_") || stack.includes("_fd_write")) {
+          return;
+        }
+        origError.apply(console, args as []);
+      };
+
       const holistic = new Holistic({ locateFile });
       holistic.setOptions({
         modelComplexity: 1,
@@ -52,6 +64,7 @@ export function useWebcamCapture() {
         minTrackingConfidence: 0.5,
       });
 
+      let lastDebugLog = 0;
       holistic.onResults((results: Results) => {
         const frame = {
           pose:      flattenLandmarks(results.poseLandmarks),
@@ -59,8 +72,19 @@ export function useWebcamCapture() {
           rightHand: flattenLandmarks(results.rightHandLandmarks),
           face:      flattenLandmarks(results.faceLandmarks),
         };
-        // Only send if we have at least one hand detected
-        if (frame.leftHand.length > 0 || frame.rightHand.length > 0) {
+        const hasHand = frame.leftHand.length > 0 || frame.rightHand.length > 0;
+        const now = performance.now();
+        if (now - lastDebugLog > 1000) {
+          lastDebugLog = now;
+          // eslint-disable-next-line no-console
+          console.info("[webcam] onResults", {
+            hasHand,
+            rightHand: frame.rightHand.length / 3,
+            leftHand: frame.leftHand.length / 3,
+            face: frame.face.length / 3,
+          });
+        }
+        if (hasHand) {
           getSocket().send({ type: "landmarks", seq: seqRef.current++, frame });
         }
       });

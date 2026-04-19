@@ -47,8 +47,11 @@ export function useSimulatorSocket() {
       setLastPayload(msg);
 
       switch (msg.type) {
-        case "transcript":
-          if (mode === "speech2isl") {
+        case "transcript": {
+          // Read mode live, not via the stale closure — the component may
+          // render the ISL panel without anyone having called setMode().
+          const liveMode = useSimulatorStore.getState().mode;
+          if (liveMode === "speech2isl") {
             appendTranscript({
               id: `${msg.timestampMs}-${Math.random().toString(36).slice(2, 6)}`,
               text: msg.text,
@@ -56,11 +59,13 @@ export function useSimulatorSocket() {
               partial: msg.partial,
               timestampMs: msg.timestampMs,
             });
-          } else {
-            setRecognized(msg.text, msg.confidence);
           }
+          // Always update RECOGNIZED — if the ISL panel is on screen it'll
+          // render this; if not, it's harmless.
+          setRecognized(msg.text, msg.confidence);
           pushConfidence(msg.confidence);
           break;
+        }
 
         case "gloss":
           setGloss(msg.tokens, msg.sourceText, msg.sentiment ?? "neutral");

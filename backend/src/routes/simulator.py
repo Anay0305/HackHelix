@@ -21,7 +21,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
 import os
 
-from src.services.sign_classifier import classify_sign, classify_sequence
+from src.services.sign_classifier import classify_sign, classify_sequence, classify_sequence_scored
 from src.services.sentence_former import gloss_to_sentence
 from src.services.isl_grammar import text_to_gloss
 from src.services.elevenlabs_client import synthesize
@@ -203,7 +203,7 @@ async def simulator_websocket(ws: WebSocket):
             tokens = _make_gloss_tokens(words)
             sentiment = _nmm_to_sentiment(nmm)
 
-            print(f"[groq] input='{text}' → gloss={words} nmm={nmm}")
+            print(f"[groq] input='{text}' -> gloss={words} nmm={nmm}")
 
             await send({
                 "type":       "gloss",
@@ -357,10 +357,13 @@ async def simulator_websocket(ws: WebSocket):
             if msg_type == "landmarks" and mode == "isl2speech":
                 frame = data.get("frame", {})
                 right_flat = frame.get("rightHand", [])
-                if len(right_flat) < 63:
+                left_flat  = frame.get("leftHand",  [])
+                # pick whichever hand is present; prefer right
+                flat = right_flat if len(right_flat) >= 63 else left_flat
+                if len(flat) < 63:
                     continue
 
-                landmarks = _unflatten(right_flat)
+                landmarks = _unflatten(flat)
                 now = time.time()
 
                 frame_window.append(landmarks)
@@ -370,30 +373,49 @@ async def simulator_websocket(ws: WebSocket):
                 delta = _landmark_delta(prev_landmarks, landmarks)
                 prev_landmarks = landmarks
 
-                if delta < MOVEMENT_THRESH:
-                    if hold_start is None:
+                # Classify as soon as the window has ~0.5 s of data (8 frames
+                # at 15 fps) and we're past the debounce cooldown. Don't wait
+                # for perfect stillness — natural signing is never fully still
+                # and demanding a 500 ms hold starves the UI.
+                if len(frame_window) < 8 or now < cooldown_until:
+                    continue
+
+                sign, conf = classify_sequence_scored(frame_window)
+                print(f"[isl2speech] classified={sign} conf={conf:.2f} buf={len(frame_window)} delta={delta:.3f}")
+                if not sign or conf < 0.45:
+                    # Even if we reject the prediction, send a low-conf
+                    # transcript every 2 s so the UI's RECOGNIZED bar reflects
+                    # "camera seeing hand, not sure what sign yet" instead of
+                    # frozen 0%.
+                    if now - (hold_start or 0) > 2.0:
                         hold_start = now
-                    elif (now - hold_start) >= HOLD_DURATION and now > cooldown_until:
-                        sign = classify_sequence(frame_window) if len(frame_window) >= 4 else classify_sign(landmarks)
-                        if sign and sign != last_classified:
-                            last_classified = sign
-                            cooldown_until = now + 0.8
-                            sign_buffer.append(sign)
+                        await send({
+                            "type":        "transcript",
+                            "partial":     True,
+                            "text":        sign or "…",
+                            "confidence":  conf,
+                            "timestampMs": int(now * 1000),
+                        })
+                    continue
+                if sign == last_classified:
+                    continue
 
-                            await send({
-                                "type":        "transcript",
-                                "partial":     True,
-                                "text":        sign,
-                                "confidence":  0.85,
-                                "timestampMs": int(now * 1000),
-                            })
+                last_classified = sign
+                hold_start = now
+                cooldown_until = now + 0.6
+                sign_buffer.append(sign)
 
-                            if flush_task and not flush_task.done():
-                                flush_task.cancel()
-                            flush_task = asyncio.create_task(flush_buffer())
-                else:
-                    hold_start = None
-                    last_classified = None
+                await send({
+                    "type":        "transcript",
+                    "partial":     True,
+                    "text":        sign,
+                    "confidence":  conf,
+                    "timestampMs": int(now * 1000),
+                })
+
+                if flush_task and not flush_task.done():
+                    flush_task.cancel()
+                flush_task = asyncio.create_task(flush_buffer())
 
                 continue
 

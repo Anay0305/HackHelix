@@ -90,6 +90,22 @@ app.add_middleware(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Routers — the frontend hits /ws/simulator, not the legacy /ws/translate.
+# Keep both registered so either path works.
+# ──────────────────────────────────────────────────────────────────────────────
+
+from src.routes.stt import router as stt_router
+from src.routes.isl_recognition import router as isl_router
+from src.routes.hear import router as hear_router
+from src.routes.simulator import router as simulator_router
+
+app.include_router(stt_router)
+app.include_router(isl_router)
+app.include_router(hear_router)
+app.include_router(simulator_router)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # The Brain — English → ISL Gloss via Groq Llama-3
 # ──────────────────────────────────────────────────────────────────────────────
 

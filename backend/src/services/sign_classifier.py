@@ -174,19 +174,17 @@ for k in SIGN_TEMPLATES:
     SIGN_TEMPLATES[k] = v / (np.linalg.norm(v) + 1e-6)
 
 
-def classify_sign(
+def classify_sign_scored(
     landmarks: list[list[float]],
-    threshold: float = 0.82,
-) -> Optional[str]:
-    """Single-frame cosine-similarity classifier. Kept for callers that
-    pass one frame at a time — the LSTM version below is preferred for sequences."""
+) -> tuple[Optional[str], float]:
+    """Return (best_sign, cosine_score) for a single frame, or (None, 0.0)."""
     if len(landmarks) < 21:
-        return None
+        return None, 0.0
 
     features = _extract_features(landmarks)
     norm = np.linalg.norm(features)
     if norm < 1e-6:
-        return None
+        return None, 0.0
     features = features / norm
 
     best_sign = None
@@ -198,7 +196,16 @@ def classify_sign(
             best_score = score
             best_sign = sign
 
-    return best_sign if best_score >= threshold else None
+    return best_sign, max(0.0, best_score)
+
+
+def classify_sign(
+    landmarks: list[list[float]],
+    threshold: float = 0.82,
+) -> Optional[str]:
+    """Single-frame cosine-similarity classifier. Returns label if confidence >= threshold."""
+    sign, score = classify_sign_scored(landmarks)
+    return sign if score >= threshold else None
 
 
 # ── LSTM sequence classifier ──────────────────────────────────────────────
@@ -265,21 +272,37 @@ def _normalize_seq(seq: list[list[list[float]]]) -> np.ndarray:
     return arr
 
 
+def classify_sequence_scored(
+    frames: list[list[list[float]]],
+) -> tuple[Optional[str], float]:
+    """Return (label, confidence) for a landmark sequence.
+
+    Strategy:
+      1. If LSTM model is loaded and confident (>=0.55), return its prediction.
+      2. Otherwise fall back to single-frame cosine matching on the median
+         (middle) frame of the window. Real MediaPipe features rarely match
+         the synthetic training distribution exactly, so cosine is the
+         safety net that still produces sensible gloss for common shapes.
+    """
+    if not frames:
+        return None, 0.0
+
+    model = _load_lstm()
+    if model is not None:
+        x = _normalize_seq(frames)[None, ...]
+        probs = model.predict(x, verbose=0)[0]
+        top = int(np.argmax(probs))
+        conf = float(probs[top])
+        if conf >= 0.55:
+            return _LSTM_LABELS[top], conf
+
+    mid = frames[len(frames) // 2]
+    return classify_sign_scored(mid)
+
+
 def classify_sequence(
     frames: list[list[list[float]]],
     threshold: float = 0.55,
 ) -> Optional[str]:
-    """Classify a sequence of per-frame 21-landmark arrays using the LSTM.
-    Falls back to single-frame classification on the last frame if no model is loaded.
-    """
-    model = _load_lstm()
-    if model is None:
-        return classify_sign(frames[-1] if frames else [], threshold=0.82)
-
-    x = _normalize_seq(frames)[None, ...]  # (1, SEQ_LEN, feat_dim)
-    probs = model.predict(x, verbose=0)[0]
-    top = int(np.argmax(probs))
-    conf = float(probs[top])
-    if conf < threshold:
-        return None
-    return _LSTM_LABELS[top]
+    label, conf = classify_sequence_scored(frames)
+    return label if conf >= threshold else None
