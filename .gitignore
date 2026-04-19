@@ -49,3 +49,4 @@ datasets/poses/
 # Public key files / certs
 *.pem
 *.key
+datasets/hand_landmarker.task
