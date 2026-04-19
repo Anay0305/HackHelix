@@ -172,32 +172,39 @@ async def call_websocket(
                 {"brow_lower": 0.6} if nmm == "negation" else {}
             )
 
-            # Gloss visible on deaf side
-            await send_partner({
-                "type": "gloss",
-                "tokens": _gloss_tokens(words),
-                "sentiment": "neutral",
-                "sourceText": text,
-            })
-
-            # Build and send pose sequence to deaf person's avatar
+            # Build pose sequence once, send to both sides
+            # (deaf: drives their avatar | hearing: drives their ISL preview)
             word_poses = []
             for word in words:
                 frames    = get_pose(word)
                 arm_frames = [_extract_arm(f) for f in frames]
                 word_poses.append({"word": word, "frames": arm_frames})
 
-            await send_partner({
+            gloss_msg = {
+                "type": "gloss",
+                "tokens": _gloss_tokens(words),
+                "sentiment": "neutral",
+                "sourceText": text,
+            }
+            pose_msg = {
                 "type": "pose_sequence",
                 "words": word_poses,
                 "msPerFrame": 400,
-            })
-            await send_partner({
+            }
+            cue_msg = {
                 "type": "avatar_cue",
                 "clip": words[0].lower() if words else "idle",
                 "morphTargets": nmm_morph,
                 "durationMs": len(words) * 600,
-            })
+            }
+
+            await send_partner(gloss_msg)
+            await send_partner(pose_msg)
+            await send_partner(cue_msg)
+            # Mirror to self so hearing-side avatar preview also animates
+            await send_self(gloss_msg)
+            await send_self(pose_msg)
+            await send_self(cue_msg)
 
         except Exception as e:
             await send_self({"type": "error", "code": "speech_error", "msg": str(e)})
