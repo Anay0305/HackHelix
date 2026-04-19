@@ -79,6 +79,12 @@ def _load_model():
 
 # ── public API ─────────────────────────────────────────────────────────────
 
+def preload() -> None:
+    """Pre-warm the YAMNet model. Call once at app startup."""
+    if _TF_AVAILABLE:
+        _load_model()
+
+
 def detect_alert_sync(
     pcm16_bytes: bytes,
     src_sr: int = 48000,

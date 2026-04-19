@@ -65,7 +65,7 @@ export function AvatarStage() {
 
       <Canvas
         shadows
-        camera={{ position: [0, 1.45, 2.4], fov: 38 }}
+        camera={{ position: [0, 1.05, 3.8], fov: 52 }}
         dpr={[1, 2]}
         gl={{ antialias: true, alpha: true }}
       >
@@ -117,9 +117,9 @@ export function AvatarStage() {
         <OrbitControls
           enablePan={false}
           enableZoom={false}
-          target={[0, 1.25, 0]}
-          minPolarAngle={Math.PI / 2.4}
-          maxPolarAngle={Math.PI / 1.9}
+          target={[0, 0.85, 0]}
+          minPolarAngle={Math.PI / 2.6}
+          maxPolarAngle={Math.PI / 1.85}
           minAzimuthAngle={-0.5}
           maxAzimuthAngle={0.5}
         />

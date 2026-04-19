@@ -9,6 +9,8 @@ import {
   Film,
   Image as ImageIcon,
   Bell,
+  Send,
+  Keyboard,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Progress } from "@/components/ui/Progress";
@@ -17,7 +19,7 @@ import { useWebcamCapture } from "../hooks/useWebcamCapture";
 import { getSocket } from "@/api/socket";
 import { shortId, formatTime } from "@/lib/format";
 
-type InputMode = "live" | "video" | "photo";
+type InputMode = "live" | "video" | "photo" | "gloss";
 
 const ALERT_ICONS: Record<string, string> = {
   fire_alarm: "🔥",
@@ -68,9 +70,10 @@ export function IslToSpeechPanel() {
       </AnimatePresence>
 
       <div className="flex-1 min-h-0 flex flex-col gap-5">
-        {inputMode === "live" && <LiveCameraMode />}
+        {inputMode === "live"  && <LiveCameraMode />}
         {inputMode === "video" && <UploadMode accept="video/*" kind="video" />}
         {inputMode === "photo" && <UploadMode accept="image/*" kind="photo" />}
+        {inputMode === "gloss" && <GlossTextMode />}
         <OutputSection />
       </div>
     </div>
@@ -100,6 +103,11 @@ function ModeToggle({
         value: "photo",
         label: "Upload Photo",
         icon: <ImageIcon className="h-6 w-6" strokeWidth={2.2} aria-hidden />,
+      },
+      {
+        value: "gloss",
+        label: "Type Gloss",
+        icon: <Keyboard className="h-6 w-6" strokeWidth={2.2} aria-hidden />,
       },
     ];
 
@@ -370,6 +378,93 @@ function UploadMode({
           </button>
         </div>
       )}
+    </section>
+  );
+}
+
+function GlossTextMode() {
+  const [gloss, setGloss] = useState("");
+  const [busy, setBusy] = useState(false);
+  const setSessionId = useSimulatorStore((s) => s.setSessionId);
+
+  const QUICK: string[] = [
+    "ME WATER WANT",
+    "ME HELP NEED",
+    "YOU NAME WHAT",
+    "ME UNDERSTAND NOT",
+    "YOU OKAY",
+    "ME THANK_YOU",
+    "ME DOCTOR NEED",
+  ];
+
+  async function submit(text: string) {
+    const g = text.trim().toUpperCase();
+    if (!g) return;
+    setBusy(true);
+    const id = `sess-${shortId()}`;
+    setSessionId(id);
+    getSocket().send({ type: "start", mode: "isl2speech", sessionId: id });
+    // Reuse the backend's text→gloss→TTS path by sending as landmarks flush
+    // via a special "gloss_text" message type the backend handles
+    getSocket().send({ type: "gloss_text", payload: g, sessionId: id } as never);
+    setTimeout(() => setBusy(false), 3000);
+  }
+
+  return (
+    <section
+      aria-label="Type ISL gloss"
+      className="flex flex-col gap-4 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5"
+    >
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 font-space-grotesk">
+        Type ISL Gloss → Speech
+      </p>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={gloss}
+          onChange={(e) => setGloss(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { submit(gloss); setGloss(""); } }}
+          placeholder="ME WATER WANT"
+          className={cn(
+            "flex-1 bg-zinc-950/70 border border-white/10 rounded-xl px-4 py-2.5",
+            "text-sm font-mono text-white placeholder:text-zinc-600",
+            "focus:outline-none focus:border-[#8B5CF6]/60 transition-colors",
+          )}
+        />
+        <button
+          onClick={() => { submit(gloss); setGloss(""); }}
+          disabled={busy || !gloss.trim()}
+          aria-label="Convert gloss to speech"
+          className={cn(
+            "h-10 w-10 rounded-xl grid place-items-center transition-all focus-ring",
+            "bg-gradient-to-br from-[#8B5CF6] to-[#C05177] text-white",
+            "disabled:opacity-40 disabled:cursor-not-allowed",
+            "hover:shadow-[0_4px_16px_rgba(139,92,246,0.5)] active:scale-95",
+          )}
+        >
+          <Send className="h-4 w-4" aria-hidden />
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {QUICK.map((q) => (
+          <button
+            key={q}
+            onClick={() => submit(q)}
+            disabled={busy}
+            className={cn(
+              "px-3 py-1.5 rounded-lg text-[11px] font-mono font-medium transition-all",
+              "bg-white/5 border border-white/10 text-zinc-400",
+              "hover:bg-[#8B5CF6]/20 hover:border-[#8B5CF6]/40 hover:text-white",
+              "disabled:opacity-40 disabled:cursor-not-allowed active:scale-95",
+            )}
+          >
+            {q}
+          </button>
+        ))}
+      </div>
+      <p className="text-[10px] text-zinc-600 font-inter">
+        ISL gloss order: SOV · e.g. ME WATER WANT = "I want water"
+      </p>
     </section>
   );
 }

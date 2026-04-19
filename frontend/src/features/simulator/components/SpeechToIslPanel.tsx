@@ -43,7 +43,7 @@ export function SpeechToIslPanel() {
         {inputMode === "voice" && <VoiceMode />}
         {inputMode === "media" && <MediaMode />}
 
-        <div className="h-64 md:h-72 shrink-0" aria-label="Avatar output stage">
+        <div className="h-80 md:h-[26rem] shrink-0" aria-label="Avatar output stage">
           <AvatarStage />
         </div>
 
@@ -415,18 +415,22 @@ function OutputSection() {
               Gloss tokens animate the avatar in order.
             </p>
           ) : (
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1.5 items-center">
               {glossTokens.map((t, i) => (
                 <motion.span
                   key={`${t.gloss}-${i}`}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-gradient-to-r from-[#8B5CF6]/25 to-[#C05177]/25 border border-[#8B5CF6]/30 font-mono text-xs font-medium text-ink"
+                  initial={{ opacity: 0, scale: 0.85 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: i * 0.07, type: "spring", stiffness: 300 }}
+                  className="inline-flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-md bg-gradient-to-r from-[#8B5CF6]/25 to-[#C05177]/25 border border-[#8B5CF6]/30"
                 >
-                  {t.gloss}
+                  <span className="text-[9px] font-bold text-[#8B5CF6]/70 font-mono leading-none">{i + 1}</span>
+                  <span className="font-mono text-xs font-semibold text-ink">{t.gloss}</span>
                 </motion.span>
               ))}
+              {glossTokens.length > 0 && (
+                <span className="text-[10px] text-zinc-500 font-inter ml-1">SOV order</span>
+              )}
             </div>
           )}
         </div>

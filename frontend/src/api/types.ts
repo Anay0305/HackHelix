@@ -212,6 +212,8 @@ export type ServerMsg =
           ls: { x: number; y: number };
           le: { x: number; y: number };
           lw: { x: number; y: number };
+          rightHand: Array<{ x: number; y: number }>;
+          leftHand: Array<{ x: number; y: number }>;
         }>;
       }>;
       msPerFrame: number;

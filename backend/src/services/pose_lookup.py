@@ -24,11 +24,16 @@ def lm(x: float, y: float, z: float = 0.0):
 def _neutral(n: int):
     return [lm(0.5, 0.5)] * n
 
+# Left arm rest landmarks (used when a sign only specifies the right arm)
+_L_REST_S = [0.65, 0.35]
+_L_REST_E = [0.65, 0.52]
+_L_REST_W = [0.65, 0.67]
+
 def _body(rs, re, rw, ls=None, le=None, lw=None):
     """Build 33-element body array; only arm landmarks matter."""
-    ls = ls or [0.65, rs[1]]
-    le = le or [0.65, re[1] + 0.02]
-    lw = lw or [0.65, rw[1] + 0.02]
+    ls = ls or _L_REST_S
+    le = le or _L_REST_E
+    lw = lw or _L_REST_W
     b = _neutral(33)
     b[11] = lm(*rs)
     b[12] = lm(*ls)
@@ -140,6 +145,25 @@ BUILTIN_POSES: dict[str, list] = {
     "TIME-FUTURE": [_f(FWD, OPEN), _f(SIDE, OPEN)],
     "CAN":         [_f(FWD, FIST), _f(CHEST, FIST)],
     "WHERE":       [_f(MID, POINT), _f(SIDE, POINT), _f(MID, POINT)],
+    # HOW — both palms open at chest, rotate/extend outward (questioning gesture)
+    "HOW":         [_f(CHEST, OPEN), _f(FWD, OPEN), _f(CHEST, OPEN)],
+    # WHY — index to temple, then flick forward
+    "WHY":         [_f(HEAD, POINT), _f(_arm(RS,[0.30,0.24],[0.38,0.18]), POINT), _f(FWD, POINT)],
+    # WHO — point near chin/lips and move forward
+    "WHO":         [_f(CHIN, POINT), _f(FWD, POINT)],
+    # WHEN — index at shoulder height, circle then point
+    "WHEN":        [_f(MID, POINT), _f(_arm(RS,[0.38,0.30],[0.46,0.22]), POINT), _f(MID, POINT)],
+    "HAVE":        [_f(CHEST, FIST), _f(FWD, FIST)],
+    "NEED":        [_f(FWD, CHAND), _f(CHIN, CHAND)],
+    "FEEL":        [_f(CHEST, OPEN)],
+    "SICK":        [_f(HEAD, OPEN), _f(CHIN, OPEN)],
+    "PAIN":        [_f(CHEST, FIST), _f(CHIN, FIST)],
+    "DOCTOR":      [_f(CHIN, FLAT), _f(_arm(RS,[0.40,0.36],[0.48,0.28]), FLAT)],
+    "HOSPITAL":    [_f(MID, OPEN), _f(HEAD, OPEN)],
+    "POLICE":      [_f(CHIN, FIST), _f(CHEST, FIST)],
+    "FIRE":        [_f(FWD, OPEN), _f(MID, OPEN), _f(FWD, OPEN)],
+    "HELP-ME":     [_f(CHEST, FIST), _f(FWD, FIST), _f(CHIN, FIST)],
+    "CALL":        [_f(CHIN, OPEN), _f(FWD, OPEN)],
     "HERE":        [_f(CHEST, POINT)],
     "OKAY":        [_f(CHIN, POINT)],
     "YES-NO":      [_f(FWD, OPEN), _f(CHIN, OPEN)],
@@ -168,4 +192,13 @@ def get_pose(word: str) -> list:
     """Return list of SignFrame dicts for a gloss word."""
     db = _load_db()
     key = word.upper()
-    return db.get(key) or BUILTIN_POSES.get(key) or GENERIC
+    if key in db:
+        frames = db[key]
+        print(f"[pose] '{key}' → pose_db.json ({len(frames)} frames)")
+        return frames
+    if key in BUILTIN_POSES:
+        frames = BUILTIN_POSES[key]
+        print(f"[pose] '{key}' → builtin ({len(frames)} frames)")
+        return frames
+    print(f"[pose] '{key}' → GENERIC fallback (not in db or builtins)")
+    return GENERIC

@@ -98,6 +98,12 @@ def _write_wav_16k(samples: np.ndarray) -> str:
 
 # ── public API ─────────────────────────────────────────────────────────────
 
+def preload() -> None:
+    """Pre-warm the SpeechBrain classifier. Call once at app startup."""
+    if _SPEECHBRAIN:
+        _get_classifier()
+
+
 def analyze_audio_sync(pcm16_bytes: bytes, src_sr: int = 48000) -> dict:
     """
     Run SpeechBrain emotion classification + librosa energy on raw PCM16 bytes.

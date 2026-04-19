@@ -105,6 +105,28 @@ app.include_router(hear_router)
 app.include_router(simulator_router)
 
 
+@app.on_event("startup")
+async def _warm_ml_models() -> None:
+    """Pre-load SpeechBrain + YAMNet in background threads so the first
+    WebSocket session doesn't pay the model-download / load penalty."""
+    from src.services.emotion_merger import preload as warm_emotion
+    from src.services.yamnet_service import preload as warm_yamnet
+
+    async def _run():
+        try:
+            await asyncio.to_thread(warm_emotion)
+            log.info("[startup] SpeechBrain emotion model ready")
+        except Exception as exc:
+            log.warning("[startup] SpeechBrain warmup skipped: %s", exc)
+        try:
+            await asyncio.to_thread(warm_yamnet)
+            log.info("[startup] YAMNet model ready")
+        except Exception as exc:
+            log.warning("[startup] YAMNet warmup skipped: %s", exc)
+
+    asyncio.create_task(_run())
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # The Brain — English → ISL Gloss via Groq Llama-3
 # ──────────────────────────────────────────────────────────────────────────────
