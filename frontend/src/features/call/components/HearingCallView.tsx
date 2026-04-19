@@ -175,7 +175,7 @@ export function HearingCallView({ socket }: { socket: CallSocket }) {
       </section>
 
       {/* Avatar preview */}
-      <section className="flex-1 min-h-[200px] bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
+      <section className="h-64 shrink-0 bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 px-4 pt-3 font-space-grotesk">
           ISL Preview (what deaf person sees)
         </p>
