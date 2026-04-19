@@ -15,7 +15,7 @@ import {
 import { cn } from "@/lib/cn";
 import { Progress } from "@/components/ui/Progress";
 import { useSimulatorStore } from "@/store/simulatorStore";
-import { useWebcamCapture } from "../hooks/useWebcamCapture";
+import { useWebcamCapture, subscribeLandmarks, type LandmarkSnapshot } from "../hooks/useWebcamCapture";
 import { getSocket } from "@/api/socket";
 import { shortId, formatTime } from "@/lib/format";
 
@@ -584,45 +584,143 @@ function CameraButton({
   );
 }
 
+// MediaPipe Hand connection pairs — for drawing skeleton lines between joints
+const HAND_EDGES: [number, number][] = [
+  [0,1],[1,2],[2,3],[3,4],         // thumb
+  [0,5],[5,6],[6,7],[7,8],         // index
+  [5,9],[9,10],[10,11],[11,12],    // middle
+  [9,13],[13,14],[14,15],[15,16],  // ring
+  [13,17],[17,18],[18,19],[19,20], // pinky
+  [0,17],                           // palm base
+];
+
 function LandmarkOverlay() {
-  const ref = useRef<SVGSVGElement | null>(null);
+  const [snap, setSnap] = useState<LandmarkSnapshot | null>(null);
+  // Staleness flag: if we haven't seen a MediaPipe tick in 1.5 s, "detecting…"
+  const [stale, setStale] = useState(true);
 
   useEffect(() => {
-    let raf = 0;
-    const tick = () => {
-      const svg = ref.current;
-      if (!svg) return;
-      const t = Date.now() / 800;
-      const dots = svg.querySelectorAll<SVGCircleElement>("circle");
-      dots.forEach((c, i) => {
-        const phase = i / dots.length;
-        const x = 50 + Math.sin(t + phase * 6) * 15;
-        const y = 50 + Math.cos(t * 1.2 + phase * 8) * 12;
-        c.setAttribute("cx", `${x}%`);
-        c.setAttribute("cy", `${y}%`);
-      });
-      raf = requestAnimationFrame(tick);
+    const unsub = subscribeLandmarks(setSnap);
+    const id = setInterval(() => {
+      const s = snap;
+      if (!s) return;
+      setStale(performance.now() - s.updatedAt > 1500);
+    }, 300);
+    return () => {
+      unsub();
+      clearInterval(id);
     };
-    tick();
-    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const hasHand = !!snap?.hasHand && !stale;
+  // Video is mirrored with scaleX(-1) in the panel — undo that here so the
+  // overlay aligns with what the user actually sees.
+  const toPct = (v: number) => `${v * 100}%`;
+  const mirrorX = (x: number) => 1 - x;   // because the video element is flipped
+
   return (
-    <svg
-      ref={ref}
-      className="absolute inset-0 w-full h-full pointer-events-none"
-      aria-hidden
-    >
-      {Array.from({ length: 21 }).map((_, i) => (
-        <circle
-          key={i}
-          r="3"
-          cx="50%"
-          cy="50%"
-          fill={i < 10 ? "#8B5CF6" : "#C05177"}
-          opacity="0.9"
+    <>
+      {/* HUD status badge — top-left */}
+      <div
+        role="status"
+        aria-live="polite"
+        className={cn(
+          "absolute top-2 left-2 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium backdrop-blur",
+          hasHand
+            ? "bg-emerald-500/20 border border-emerald-400/40 text-emerald-200"
+            : "bg-zinc-900/70 border border-white/10 text-zinc-400",
+        )}
+      >
+        <span
+          className={cn(
+            "h-1.5 w-1.5 rounded-full",
+            hasHand ? "bg-emerald-400 animate-pulse" : "bg-zinc-600",
+          )}
+          aria-hidden
         />
-      ))}
-    </svg>
+        {hasHand ? "Hand detected" : stale ? "No video" : "No hand in frame"}
+      </div>
+
+      <svg
+        className="absolute inset-0 w-full h-full pointer-events-none"
+        aria-hidden
+      >
+        {/* Right-hand skeleton + joints (purple) */}
+        {snap?.rightHand.length === 21 && (
+          <g>
+            {HAND_EDGES.map(([a, b], i) => (
+              <line
+                key={`rE${i}`}
+                x1={toPct(mirrorX(snap.rightHand[a].x))}
+                y1={toPct(snap.rightHand[a].y)}
+                x2={toPct(mirrorX(snap.rightHand[b].x))}
+                y2={toPct(snap.rightHand[b].y)}
+                stroke="#8B5CF6"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                opacity="0.9"
+              />
+            ))}
+            {snap.rightHand.map((p, i) => (
+              <circle
+                key={`rD${i}`}
+                cx={toPct(mirrorX(p.x))}
+                cy={toPct(p.y)}
+                r={i === 0 || [4, 8, 12, 16, 20].includes(i) ? 4 : 3}
+                fill="#C4B5FD"
+                stroke="#8B5CF6"
+                strokeWidth="1.5"
+              />
+            ))}
+          </g>
+        )}
+
+        {/* Left-hand skeleton + joints (rose) */}
+        {snap?.leftHand.length === 21 && (
+          <g>
+            {HAND_EDGES.map(([a, b], i) => (
+              <line
+                key={`lE${i}`}
+                x1={toPct(mirrorX(snap.leftHand[a].x))}
+                y1={toPct(snap.leftHand[a].y)}
+                x2={toPct(mirrorX(snap.leftHand[b].x))}
+                y2={toPct(snap.leftHand[b].y)}
+                stroke="#C05177"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                opacity="0.9"
+              />
+            ))}
+            {snap.leftHand.map((p, i) => (
+              <circle
+                key={`lD${i}`}
+                cx={toPct(mirrorX(p.x))}
+                cy={toPct(p.y)}
+                r={i === 0 || [4, 8, 12, 16, 20].includes(i) ? 4 : 3}
+                fill="#FBCFE8"
+                stroke="#C05177"
+                strokeWidth="1.5"
+              />
+            ))}
+          </g>
+        )}
+
+        {/* Pose shoulders/elbows/wrists (teal) — handy for framing */}
+        {snap?.pose.length === 33 && (
+          <g opacity="0.55">
+            {[11, 12, 13, 14, 15, 16].map((i) => (
+              <circle
+                key={`p${i}`}
+                cx={toPct(mirrorX(snap.pose[i].x))}
+                cy={toPct(snap.pose[i].y)}
+                r="3"
+                fill="#22D3EE"
+              />
+            ))}
+          </g>
+        )}
+      </svg>
+    </>
   );
 }

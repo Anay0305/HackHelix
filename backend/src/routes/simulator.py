@@ -168,9 +168,13 @@ async def simulator_websocket(ws: WebSocket):
         conn.on(LiveTranscriptionEvents.Transcript, on_transcript)
         conn.on(LiveTranscriptionEvents.Error, on_error)
 
+        # "multi" enables Deepgram's code-switching mode on Nova-3 — accepts
+        # Hindi, English, and Hinglish within the same utterance. Override with
+        # DEEPGRAM_LANGUAGE env var (e.g. "en-IN" to disable, "hi" for Hindi-only).
+        dg_language = os.getenv("DEEPGRAM_LANGUAGE", "multi")
         options = LiveOptions(
             model="nova-3",
-            language="en-IN",
+            language=dg_language,
             encoding="linear16",
             sample_rate=sr,
             channels=1,
@@ -239,7 +243,9 @@ async def simulator_websocket(ws: WebSocket):
             await send({
                 "type":       "pose_sequence",
                 "words":      word_poses,
-                "msPerFrame": 400,
+                # 650 ms/frame lets the avatar actually HOLD each keyframe
+                # (plus cross-fade time) instead of snapping at 2.5 fps.
+                "msPerFrame": 650,
             })
 
             # Merge NMM morph targets with emotion morph targets

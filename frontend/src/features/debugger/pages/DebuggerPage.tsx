@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Trash2, Copy, Activity, Gauge, Code2, Pause, Play } from "lucide-react";
+import { Trash2, Copy, Activity, Gauge, Code2, Pause, Play, Camera, CameraOff } from "lucide-react";
 import { toast } from "sonner";
 import { TopBar } from "@/components/common/TopBar";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { formatLatency, formatTime } from "@/lib/format";
 import { useDebuggerStore } from "@/store";
+import { env } from "@/lib/env";
 
-type Pane = "logs" | "payload" | "metrics";
+type Pane = "logs" | "payload" | "metrics" | "camera";
 
 export function DebuggerPage() {
   const [pane, setPane] = useState<Pane>("logs");
@@ -32,6 +33,7 @@ export function DebuggerPage() {
               { id: "logs", label: "Logs", icon: Activity },
               { id: "payload", label: "Payloads", icon: Code2 },
               { id: "metrics", label: "Metrics", icon: Gauge },
+              { id: "camera", label: "Camera", icon: Camera },
             ] as const
           ).map((t) => (
             <button
@@ -58,11 +60,494 @@ export function DebuggerPage() {
           {pane === "logs" && <LogTerminal />}
           {pane === "payload" && <PayloadInspector />}
           {pane === "metrics" && <MetricsPane />}
+          {pane === "camera" && <CameraDebugTab />}
         </div>
       </div>
     </div>
   );
 }
+
+// ── Camera Debug Tab ──────────────────────────────────────────────────────────
+
+const MEDIAPIPE_CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic@0.5.1675471629";
+const TIP_IDS = [4, 8, 12, 16, 20];
+const MCP_IDS = [2, 5, 9, 13, 17];
+const FINGER_NAMES = ["Thumb", "Index", "Middle", "Ring", "Pinky"];
+const FRAME_WINDOW_MAX = 24;
+const CONF_THRESHOLD = 0.30;
+
+function locateFile(file: string) { return `${MEDIAPIPE_CDN}/${file}`; }
+
+function flattenLandmarks(lms: { x: number; y: number; z: number }[] | null | undefined): number[] {
+  if (!lms) return [];
+  return lms.flatMap((l) => [l.x, l.y, l.z]);
+}
+
+function computeExtensions(lms: { x: number; y: number; z: number }[]): number[] {
+  const w = lms[0];
+  const d = (a: typeof w, b: typeof w) =>
+    Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2);
+  return TIP_IDS.map((t, i) => d(lms[t], w) / (d(lms[MCP_IDS[i]], w) + 1e-6));
+}
+
+function computePinch(lms: { x: number; y: number; z: number }[]): number {
+  const d = (a: typeof lms[0], b: typeof lms[0]) =>
+    Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2);
+  return d(lms[4], lms[8]);
+}
+
+function extLabel(v: number): { label: string; color: string } {
+  if (v > 1.5) return { label: "extended", color: "text-emerald-400" };
+  if (v > 1.1) return { label: "partial", color: "text-amber-400" };
+  return { label: "curled", color: "text-rose-400" };
+}
+
+type WsStatus = "idle" | "connecting" | "open" | "error" | "closed";
+interface ClassEntry { sign: string; conf: number; ts: number; buffered: boolean; }
+interface RawMsg { ts: number; raw: string; }
+
+function CameraDebugTab() {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const holisticRef = useRef<InstanceType<typeof import("@mediapipe/holistic").Holistic> | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const seqRef = useRef(0);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  const [cameraActive, setCameraActive] = useState(false);
+  const [camError, setCamError] = useState<string | null>(null);
+  const [mpStatus, setMpStatus] = useState<"idle" | "loading" | "ready">("idle");
+  const [wsStatus, setWsStatus] = useState<WsStatus>("idle");
+  const [handDetected, setHandDetected] = useState<"none" | "left" | "right">("none");
+  const [extensions, setExtensions] = useState<number[]>([0, 0, 0, 0, 0]);
+  const [pinchDist, setPinchDist] = useState(0);
+  const [framesProcessed, setFramesProcessed] = useState(0);
+  const [framesSent, setFramesSent] = useState(0);
+  const [frameWindowEst, setFrameWindowEst] = useState(0);
+  const [classHistory, setClassHistory] = useState<ClassEntry[]>([]);
+  const [signBuffer, setSignBuffer] = useState<string[]>([]);
+  const [lastSentence, setLastSentence] = useState("");
+  const [rawMessages, setRawMessages] = useState<RawMsg[]>([]);
+
+  // Derive WS URL from env (swap endpoint)
+  function getWsUrl(): string {
+    try {
+      const u = new URL(env.wsUrl);
+      u.pathname = "/ws/simulator";
+      return u.toString();
+    } catch {
+      return env.wsUrl;
+    }
+  }
+
+  function pushRaw(raw: string) {
+    setRawMessages((prev) => [{ ts: Date.now(), raw }, ...prev].slice(0, 80));
+  }
+
+  function connectWs() {
+    const url = getWsUrl();
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+    setWsStatus("connecting");
+
+    ws.onopen = () => {
+      setWsStatus("open");
+      ws.send(JSON.stringify({ type: "start", mode: "isl2speech", sessionId: "camera-debug" }));
+    };
+    ws.onerror = () => setWsStatus("error");
+    ws.onclose = () => setWsStatus("closed");
+    ws.onmessage = (evt) => {
+      pushRaw(evt.data);
+      try {
+        const msg = JSON.parse(evt.data);
+        if (msg.type === "transcript" && msg.text) {
+          const buffered = msg.partial === true && msg.confidence >= CONF_THRESHOLD;
+          setClassHistory((prev) => [
+            { sign: msg.text, conf: msg.confidence, ts: Date.now(), buffered },
+            ...prev,
+          ].slice(0, 20));
+          if (buffered) {
+            setSignBuffer((prev) => {
+              const last = prev[prev.length - 1];
+              return last === msg.text ? prev : [...prev, msg.text];
+            });
+          }
+        } else if (msg.type === "tts_ready") {
+          setLastSentence(msg.captions ?? "");
+          setSignBuffer([]);
+        }
+      } catch { /* ignore parse errors */ }
+    };
+  }
+
+  async function startCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480, facingMode: "user" },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
+
+      const { Holistic } = await import("@mediapipe/holistic");
+      const origErr = console.error;
+      console.error = (...args: unknown[]) => {
+        const s = new Error().stack ?? "";
+        if (s.includes("holistic_solution_") || s.includes("_fd_write")) return;
+        origErr.apply(console, args as []);
+      };
+
+      setMpStatus("loading");
+      const holistic = new Holistic({ locateFile });
+      holistic.setOptions({
+        modelComplexity: 1, smoothLandmarks: true, enableSegmentation: false,
+        refineFaceLandmarks: false, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5,
+      });
+
+      holistic.onResults((results) => {
+        setMpStatus("ready");
+        setFramesProcessed((n) => n + 1);
+
+        const rh = results.rightHandLandmarks;
+        const lh = results.leftHandLandmarks;
+        const hand = rh ? "right" : lh ? "left" : "none";
+        setHandDetected(hand);
+
+        const lms = rh ?? lh;
+        if (lms) {
+          setExtensions(computeExtensions(lms));
+          setPinchDist(computePinch(lms));
+        }
+
+        const frame = {
+          pose: flattenLandmarks(results.poseLandmarks),
+          leftHand: flattenLandmarks(lh),
+          rightHand: flattenLandmarks(rh),
+          face: flattenLandmarks(results.faceLandmarks),
+        };
+        const hasHand = frame.leftHand.length > 0 || frame.rightHand.length > 0;
+        if (hasHand && wsRef.current?.readyState === WebSocket.OPEN) {
+          const seq = seqRef.current++;
+          wsRef.current.send(JSON.stringify({ type: "landmarks", seq, frame }));
+          setFramesSent((n) => n + 1);
+          setFrameWindowEst((n) => Math.min(n + 1, FRAME_WINDOW_MAX));
+        }
+      });
+
+      holisticRef.current = holistic;
+      seqRef.current = 0;
+
+      let lastSend = 0;
+      const tick = () => {
+        const now = performance.now();
+        const video = videoRef.current;
+        if (now - lastSend >= 66 && video && video.readyState >= 2) {
+          lastSend = now;
+          holistic.send({ image: video }).catch(() => {});
+        }
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      tick();
+
+      connectWs();
+      setCameraActive(true);
+      setCamError(null);
+    } catch (e: unknown) {
+      setCamError(e instanceof Error ? e.message : "Camera denied");
+    }
+  }
+
+  function stopCamera() {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    holisticRef.current?.close();
+    holisticRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    try { wsRef.current?.send(JSON.stringify({ type: "stop" })); } catch { /* ignore */ }
+    wsRef.current?.close();
+    wsRef.current = null;
+    setCameraActive(false);
+    setHandDetected("none");
+    setExtensions([0, 0, 0, 0, 0]);
+    setWsStatus("idle");
+    setMpStatus("idle");
+    setFramesProcessed(0);
+    setFramesSent(0);
+    setFrameWindowEst(0);
+  }
+
+  function clearAll() {
+    setClassHistory([]);
+    setSignBuffer([]);
+    setLastSentence("");
+    setRawMessages([]);
+    setFramesSent(0);
+    setFramesProcessed(0);
+    setFrameWindowEst(0);
+  }
+
+  useEffect(() => () => stopCamera(), []);
+
+  const wsColor = {
+    idle: "text-zinc-500", connecting: "text-amber-400",
+    open: "text-emerald-400", error: "text-rose-400", closed: "text-zinc-500",
+  }[wsStatus];
+
+  return (
+    <div className="space-y-4">
+      {/* Controls bar */}
+      <Card>
+        <CardContent className="py-3 flex flex-wrap items-center gap-3">
+          <Button
+            onClick={cameraActive ? stopCamera : startCamera}
+            className="gap-2"
+            variant={cameraActive ? "secondary" : "primary"}
+          >
+            {cameraActive ? <CameraOff className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
+            {cameraActive ? "Stop Camera" : "Start Camera"}
+          </Button>
+
+          <div className="flex items-center gap-1.5 text-xs font-mono">
+            <span className={cn("h-2 w-2 rounded-full inline-block", {
+              "bg-zinc-500": wsStatus === "idle" || wsStatus === "closed",
+              "bg-amber-400 animate-pulse": wsStatus === "connecting",
+              "bg-emerald-400": wsStatus === "open",
+              "bg-rose-400": wsStatus === "error",
+            })} />
+            <span className={wsColor}>WS: {wsStatus}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 text-xs font-mono">
+            <span className={cn("h-2 w-2 rounded-full inline-block", {
+              "bg-zinc-500": mpStatus === "idle",
+              "bg-amber-400 animate-pulse": mpStatus === "loading",
+              "bg-emerald-400": mpStatus === "ready",
+            })} />
+            <span className={mpStatus === "ready" ? "text-emerald-400" : mpStatus === "loading" ? "text-amber-400" : "text-zinc-500"}>
+              MP: {mpStatus}
+            </span>
+          </div>
+
+          <span className="text-xs font-mono text-muted">
+            Processed: <span className="text-ink font-semibold">{framesProcessed}</span>
+            {" · "}
+            Sent: <span className={cn("font-semibold", framesSent > 0 ? "text-emerald-400" : "text-ink")}>{framesSent}</span>
+            {framesProcessed > 0 && framesSent === 0 && (
+              <span className="text-amber-400 ml-1">(no hand detected)</span>
+            )}
+          </span>
+
+          {handDetected !== "none" && (
+            <Badge variant="muted" className="font-mono text-emerald-400">
+              ● {handDetected.toUpperCase()} hand
+            </Badge>
+          )}
+
+          <div className="ml-auto">
+            <Button variant="ghost" size="sm" onClick={clearAll} className="gap-1.5">
+              <Trash2 className="h-3.5 w-3.5" /> Clear
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {camError && (
+        <p className="text-xs text-rose-400 font-mono px-1">{camError}</p>
+      )}
+
+      {/* Main grid */}
+      <div className="grid md:grid-cols-2 gap-4">
+        {/* Left: camera + extensions */}
+        <div className="space-y-4">
+          {/* Video */}
+          <Card>
+            <CardContent className="pt-3 pb-3">
+              <div className="relative aspect-video rounded-lg overflow-hidden bg-black border border-white/10">
+                <video
+                  ref={videoRef}
+                  playsInline muted
+                  className={cn("w-full h-full object-cover", !cameraActive && "hidden")}
+                />
+                {!cameraActive && (
+                  <div className="absolute inset-0 grid place-items-center">
+                    <CameraOff className="h-10 w-10 text-zinc-600" />
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Finger extensions */}
+          <Card>
+            <CardContent className="pt-4 pb-4">
+              <p className="text-[11px] uppercase tracking-wider text-brand-purple font-semibold mb-3">
+                Finger Extensions (mirrors classifier)
+              </p>
+              <div className="space-y-2">
+                {FINGER_NAMES.map((name, i) => {
+                  const v = extensions[i] ?? 0;
+                  const { label, color } = extLabel(v);
+                  const pct = Math.min(100, (v / 2.5) * 100);
+                  return (
+                    <div key={name} className="flex items-center gap-3 text-xs font-mono">
+                      <span className="w-12 text-muted shrink-0">{name[0]}</span>
+                      <div className="flex-1 h-2 rounded-full bg-white/5 overflow-hidden">
+                        <div
+                          className={cn("h-full rounded-full transition-all duration-75", {
+                            "bg-emerald-400": v > 1.5,
+                            "bg-amber-400": v > 1.1 && v <= 1.5,
+                            "bg-rose-400": v <= 1.1,
+                          })}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="w-10 text-right text-ink">{v.toFixed(2)}</span>
+                      <span className={cn("w-16 shrink-0", color)}>{label}</span>
+                    </div>
+                  );
+                })}
+                <div className="flex items-center gap-3 text-xs font-mono mt-1 pt-2 border-t border-white/5">
+                  <span className="w-12 text-muted shrink-0">Pinch</span>
+                  <div className="flex-1 h-2 rounded-full bg-white/5 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-[#8B5CF6] transition-all duration-75"
+                      style={{ width: `${Math.min(100, pinchDist * 200)}%` }}
+                    />
+                  </div>
+                  <span className="w-10 text-right text-ink">{pinchDist.toFixed(2)}</span>
+                  <span className="w-16 shrink-0 text-muted">
+                    {pinchDist < 0.25 ? "pinching" : "open"}
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right: classification history */}
+        <div className="space-y-4">
+          <Card>
+            <CardContent className="pt-4 pb-4">
+              <p className="text-[11px] uppercase tracking-wider text-brand-purple font-semibold mb-3">
+                Classification History
+              </p>
+              <div className="space-y-1.5 max-h-64 overflow-y-auto scrollbar-thin">
+                {classHistory.length === 0 ? (
+                  <p className="text-xs text-muted italic">Start camera and show a hand sign…</p>
+                ) : (
+                  classHistory.map((e, i) => (
+                    <div key={i} className="flex items-center gap-3 text-xs font-mono">
+                      <span className="text-zinc-500 shrink-0 w-16">
+                        {new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                      </span>
+                      <span className={cn("w-16 font-semibold shrink-0", e.buffered ? "text-ink" : "text-zinc-500")}>
+                        {e.sign}
+                      </span>
+                      <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
+                        <div
+                          className={cn("h-full rounded-full", e.conf >= CONF_THRESHOLD ? "bg-emerald-400" : "bg-zinc-600")}
+                          style={{ width: `${e.conf * 100}%` }}
+                        />
+                      </div>
+                      <span className="w-10 text-right text-muted">{Math.round(e.conf * 100)}%</span>
+                      <span className={cn("w-20 shrink-0", e.buffered ? "text-emerald-400" : "text-zinc-600")}>
+                        {e.buffered ? "✓ buffered" : "✗ low conf"}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Sign buffer + sentence */}
+          <Card>
+            <CardContent className="pt-4 pb-4 space-y-3">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] uppercase tracking-wider text-brand-purple font-semibold">
+                    Sign Buffer
+                  </p>
+                  <span className="text-[11px] font-mono text-muted">
+                    Window ~{frameWindowEst}/{FRAME_WINDOW_MAX} frames
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 min-h-8">
+                  {signBuffer.length === 0 ? (
+                    <span className="text-xs text-muted italic">empty</span>
+                  ) : (
+                    signBuffer.map((s, i) => (
+                      <span
+                        key={i}
+                        className="px-2.5 py-1 rounded-lg bg-[#8B5CF6]/20 border border-[#8B5CF6]/30 text-[11px] font-mono font-semibold text-[#8B5CF6]"
+                      >
+                        {s}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-white/5">
+                <p className="text-[11px] uppercase tracking-wider text-brand-purple font-semibold mb-1">
+                  Last Sentence
+                </p>
+                {lastSentence ? (
+                  <p className="text-sm text-white font-inter">"{lastSentence}"</p>
+                ) : (
+                  <p className="text-xs text-muted italic">Waiting for 1.5s silence to flush buffer…</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Raw WS messages */}
+      <Card>
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
+          <p className="text-[11px] uppercase tracking-wider text-brand-purple font-semibold">
+            Raw WebSocket Messages
+          </p>
+          <Button variant="ghost" size="sm" onClick={() => setRawMessages([])} className="gap-1.5">
+            <Trash2 className="h-3.5 w-3.5" /> Clear
+          </Button>
+        </div>
+        <div className="h-48 overflow-y-auto scrollbar-thin font-mono text-xs bg-black/60 text-zinc-300 p-4 space-y-0.5 rounded-b-xl2">
+          {rawMessages.length === 0 ? (
+            <span className="text-zinc-500 italic">No messages yet.</span>
+          ) : (
+            rawMessages.map((m, i) => {
+              let parsed: Record<string, unknown> | null = null;
+              try { parsed = JSON.parse(m.raw); } catch { /* ignore */ }
+              const type = (parsed?.type as string) ?? "?";
+              const typeColor = type === "transcript" ? "text-[#8B5CF6]"
+                : type === "tts_ready" ? "text-emerald-400"
+                : type === "error" ? "text-rose-400"
+                : type === "log" ? "text-amber-400"
+                : "text-zinc-400";
+              return (
+                <div key={i} className="flex gap-3 leading-relaxed">
+                  <span className="text-zinc-600 shrink-0 w-20">
+                    {new Date(m.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                  </span>
+                  <span className={cn("shrink-0 w-20 font-semibold", typeColor)}>{type}</span>
+                  <span className="text-zinc-400 truncate">{m.raw}</span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ── Existing components (unchanged) ──────────────────────────────────────────
 
 function MetricsStrip() {
   const latency = useDebuggerStore(
@@ -204,7 +689,7 @@ function LogTerminal() {
       >
         {filtered.length === 0 ? (
           <div className="text-zinc-500 italic">
-            Waiting for events\u2026 Start the simulator to stream logs.
+            Waiting for events… Start the simulator to stream logs.
           </div>
         ) : (
           filtered.map((log) => (

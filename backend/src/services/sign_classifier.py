@@ -153,8 +153,8 @@ from pathlib import Path as _Path
 
 _LSTM_MODEL = None
 _LSTM_LABELS: list[str] = []
-_LSTM_SEQ_LEN: int = 16
-_LSTM_FEAT_DIM: int = 5
+_LSTM_SEQ_LEN: int = 30
+_LSTM_FEAT_DIM: int = 63
 _LSTM_LOAD_ATTEMPTED = False
 
 
@@ -201,9 +201,10 @@ def classify_sequence_scored(
         feats = []
         for frame in frames:
             if len(frame) < 21:
+                feats.append(np.zeros(_LSTM_FEAT_DIM, dtype=np.float32))
                 continue
             pts = _normalize(frame)
-            feats.append(_extensions(pts))
+            feats.append(pts.flatten())   # 63-dim normalised coords
         if feats:
             arr = np.stack(feats).astype(np.float32)
             if len(arr) != _LSTM_SEQ_LEN:

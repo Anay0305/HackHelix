@@ -113,6 +113,7 @@ from src.routes.hear import router as hear_router
 from src.routes.simulator import router as simulator_router
 from src.routes.monitor import router as monitor_router
 from src.routes.call_ws import router as call_router
+from src.routes.isl_pose import router as isl_pose_router
 
 app.include_router(stt_router)
 app.include_router(isl_router)
@@ -120,6 +121,7 @@ app.include_router(hear_router)
 app.include_router(simulator_router)
 app.include_router(monitor_router)
 app.include_router(call_router)
+app.include_router(isl_pose_router)
 
 
 @app.on_event("startup")

@@ -1,5 +1,6 @@
 """
-Converts natural English text to ISL gloss sequence + NMM flags using Groq Llama-3.3.
+Converts natural English / Hindi / Hinglish text to ISL gloss sequence + NMM flags
+using Groq Llama-3.3.
 
 ISL grammar rules applied:
   - SOV word order (verb moves to end)
@@ -8,6 +9,12 @@ ISL grammar rules applied:
   - Negation clause-finally
   - Tense markers TIME-PAST / TIME-FUTURE at start
   - NMM: "question" for yes/no and wh-questions, "negation" for negative sentences
+
+Supported input languages:
+  - English ("What is your name?")
+  - Hindi in Devanagari ("आपका नाम क्या है")
+  - Hinglish (Hindi in Latin / romanised, often mixed with English:
+    "Aapka naam kya hai?", "Mujhe paani chahiye yaar", "Kal meeting hai")
 """
 
 import json
@@ -24,7 +31,17 @@ def _get_client() -> AsyncGroq:
     return _client
 
 
-SYSTEM_PROMPT = """You convert English sentences into Indian Sign Language (ISL) gloss sequences.
+SYSTEM_PROMPT = """You convert sentences into Indian Sign Language (ISL) gloss sequences.
+
+The user may speak in ANY of these and you must handle all of them:
+  - English ("What is your name?")
+  - Hindi in Devanagari ("आपका नाम क्या है")
+  - Hinglish — Hindi in Latin script, often mixed with English
+    ("Aapka naam kya hai?", "Mujhe paani chahiye", "Kal office jana hai yaar")
+
+Regardless of the input language, first understand the meaning, then emit the ISL
+gloss in English UPPERCASE tokens. ISL uses a fixed vocabulary — do not output
+Hindi words or Devanagari in the gloss.
 
 ISL grammar rules to apply:
 1. SOV order — move verb to end: "She drinks water" -> SHE WATER DRINK
@@ -43,6 +60,7 @@ Respond ONLY with valid JSON: {"gloss": ["TOKEN", ...], "nmm": "none"|"question"
 No explanation, no markdown, no backticks — just the raw JSON object."""
 
 EXAMPLES = [
+    # English
     ("What is your name?",          '{"gloss": ["YOU", "NAME", "WHAT"], "nmm": "question"}'),
     ("I want water.",                '{"gloss": ["ME", "WATER", "WANT"], "nmm": "none"}'),
     ("I need help.",                 '{"gloss": ["ME", "HELP", "NEED"], "nmm": "none"}'),
@@ -55,6 +73,25 @@ EXAMPLES = [
     ("Please stop.",                 '{"gloss": ["PLEASE", "STOP"], "nmm": "none"}'),
     ("Can you come here?",           '{"gloss": ["YOU", "HERE", "COME", "CAN"], "nmm": "question"}'),
     ("I will go tomorrow.",          '{"gloss": ["TIME-FUTURE", "ME", "GO"], "nmm": "none"}'),
+
+    # Hindi (Devanagari)
+    ("आपका नाम क्या है?",            '{"gloss": ["YOU", "NAME", "WHAT"], "nmm": "question"}'),
+    ("मुझे पानी चाहिए",              '{"gloss": ["ME", "WATER", "WANT"], "nmm": "none"}'),
+    ("मुझे मदद चाहिए",               '{"gloss": ["ME", "HELP", "NEED"], "nmm": "none"}'),
+    ("मुझे समझ नहीं आया",            '{"gloss": ["ME", "UNDERSTAND", "NOT"], "nmm": "negation"}'),
+    ("तुम कहाँ जा रहे हो?",          '{"gloss": ["YOU", "GO", "WHERE"], "nmm": "question"}'),
+    ("मैंने खाना खा लिया",           '{"gloss": ["TIME-PAST", "ME", "EAT"], "nmm": "none"}'),
+
+    # Hinglish (romanised / code-switched)
+    ("Aapka naam kya hai?",          '{"gloss": ["YOU", "NAME", "WHAT"], "nmm": "question"}'),
+    ("Mujhe paani chahiye",          '{"gloss": ["ME", "WATER", "WANT"], "nmm": "none"}'),
+    ("Help chahiye bhai",            '{"gloss": ["ME", "HELP", "NEED"], "nmm": "none"}'),
+    ("Mujhe samajh nahi aaya",       '{"gloss": ["ME", "UNDERSTAND", "NOT"], "nmm": "negation"}'),
+    ("Tum theek ho?",                '{"gloss": ["YOU", "OKAY", "YES-NO"], "nmm": "question"}'),
+    ("Kya tum aa sakte ho?",         '{"gloss": ["YOU", "HERE", "COME", "CAN"], "nmm": "question"}'),
+    ("Kal meeting hai",              '{"gloss": ["TIME-FUTURE", "MEETING"], "nmm": "none"}'),
+    ("Main nahi jaanta",             '{"gloss": ["ME", "KNOW", "NOT"], "nmm": "negation"}'),
+    ("Dhanyavaad",                   '{"gloss": ["ME", "THANK_YOU"], "nmm": "none"}'),
 ]
 
 

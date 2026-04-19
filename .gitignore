@@ -23,8 +23,11 @@ venv/
 .env.*.local
 backend/.env
 frontend/.env.local
-frontend-old/.env.local
 
+
+# Generated / build artifacts
+*.tsbuildinfo
+vite.config.d.ts
 
 # Editor / IDE
 .idea/
@@ -50,3 +53,4 @@ datasets/poses/
 # Public key files / certs
 *.pem
 *.key
+datasets/hand_landmarker.task
