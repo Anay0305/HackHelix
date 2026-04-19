@@ -15,6 +15,27 @@ const MOUTH_CLR  = "#B91C1C";
 
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 function clamp(x: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, x)); }
+// Smootherstep — eased in/out so arms glide instead of snapping between keyframes
+function ease(t: number) {
+  const x = clamp(t, 0, 1);
+  return x * x * x * (x * (x * 6 - 15) + 10);
+}
+// Interpolate two arm frames at alpha ∈ [0,1]
+function blendLm(a: ArmLandmark, b: ArmLandmark, k: number): ArmLandmark {
+  return { x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k) };
+}
+function blendHand(a: ArmLandmark[], b: ArmLandmark[], k: number): ArmLandmark[] {
+  if (a.length !== b.length || a.length === 0) return k < 0.5 ? a : b;
+  return a.map((_, i) => blendLm(a[i], b[i], k));
+}
+function blendArmFrame(a: ArmFrame, b: ArmFrame, k: number): ArmFrame {
+  return {
+    rs: blendLm(a.rs, b.rs, k), re: blendLm(a.re, b.re, k), rw: blendLm(a.rw, b.rw, k),
+    ls: blendLm(a.ls, b.ls, k), le: blendLm(a.le, b.le, k), lw: blendLm(a.lw, b.lw, k),
+    rightHand: blendHand(a.rightHand ?? [], b.rightHand ?? [], k),
+    leftHand:  blendHand(a.leftHand  ?? [], b.leftHand  ?? [], k),
+  };
+}
 
 // ─── Arm kinematics ───────────────────────────────────────────────────────────
 
@@ -170,18 +191,25 @@ export function ProceduralAvatar() {
     const morphs   = cue?.morphTargets ?? {};
     const poseSeq  = s.poseSequence;
 
-    // Resolve current arm frame from the pose sequence timeline
+    // Resolve current arm frame from the pose sequence timeline — with
+    // eased cross-fade between consecutive keyframes so motion doesn't snap.
     let af: ArmFrame | null = null;
     if (poseSeq && poseSeq.words.length > 0) {
       const elapsed   = performance.now() - poseSeq.startedAt;
-      const totalMs   = poseSeq.words.reduce((a, w) => a + w.frames.length, 0) * poseSeq.msPerFrame;
-      if (elapsed < totalMs) {
-        const fi = Math.floor(elapsed / poseSeq.msPerFrame);
-        let rem = fi;
-        for (const word of poseSeq.words) {
-          if (rem < word.frames.length) { af = word.frames[rem]; break; }
-          rem -= word.frames.length;
-        }
+      const msPer     = poseSeq.msPerFrame;
+      // flatten all frames across all words into one timeline
+      const flat: ArmFrame[] = [];
+      for (const w of poseSeq.words) for (const f of w.frames) flat.push(f);
+      const totalMs = flat.length * msPer;
+      if (elapsed < totalMs && flat.length > 0) {
+        const pos  = elapsed / msPer;         // fractional frame index
+        const i0   = Math.min(flat.length - 1, Math.floor(pos));
+        const i1   = Math.min(flat.length - 1, i0 + 1);
+        const k    = ease(pos - i0);
+        af = i0 === i1 ? flat[i0] : blendArmFrame(flat[i0], flat[i1], k);
+      } else if (flat.length > 0) {
+        // settle on final keyframe briefly instead of collapsing to idle
+        af = flat[flat.length - 1];
       }
     }
 
@@ -216,7 +244,9 @@ export function ProceduralAvatar() {
       if (bref.current) bref.current.position.y = lerp(bref.current.position.y, 0.12 + bi * 0.04 - bd * 0.04, 0.1);
 
     // ── Arms ────────────────────────────────────────────────────────────────
-    const lr   = af ? 0.12 : 0.055; // lerp rate — snappier when driving pose
+    // Cross-fade above already smooths between keyframes, so the per-frame
+    // lerp can be gentler — avatar glides instead of chasing jerkily.
+    const lr   = af ? 0.18 : 0.055;
     const wgl  = Math.sin(t * 4) * 0.05;
 
     // Left upper-arm

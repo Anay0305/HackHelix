@@ -16,7 +16,7 @@ import numpy as np
 
 YAMNET_URL = "https://tfhub.dev/google/yamnet/1"
 
-# YAMNet display_name → (alertType, min_confidence)
+# YAMNet display_name -> (alertType, min_confidence)
 # Thresholds kept low (~0.1-0.25) because real-world audio off a laptop mic
 # rarely pushes YAMNet above 0.4 except on very clean signals. Safety-critical
 # classes (fire/siren) use slightly higher thresholds to reduce false alarms.
@@ -68,7 +68,7 @@ _DEBUG = _os.getenv("YAMNET_DEBUG", "").lower() in ("1", "true")
 
 _model = None
 _class_names: list[str] | None = None
-_alert_indices: dict[int, tuple[str, float]] | None = None   # idx → (type, min_conf)
+_alert_indices: dict[int, tuple[str, float]] | None = None   # idx -> (type, min_conf)
 
 try:
     import tensorflow as _tf

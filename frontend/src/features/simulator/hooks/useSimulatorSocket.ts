@@ -44,7 +44,58 @@ export function useSimulatorSocket() {
       }
     });
     const offMsg = socket.onMessage((msg: ServerMsg) => {
+      // ── [Phase 15] Unified receiver with aggressive tracing ──────────────
+      // Log EVERY payload up front so we can tell the flow dead if the
+      // backend never replies vs. replies with an unexpected shape.
+      console.log("[WS RECEIVE] Payload:", msg);
       setLastPayload(msg);
+
+      // ── Phase 15 flat-shape contracts ────────────────────────────────────
+      // The backend mirrors the typed {type:"gloss"} message with a flat
+      // {transcription,gloss} for English->ISL, and emits {type:"english_output"}
+      // for ISL->English. We recognise both here BEFORE the legacy switch so
+      // the UI updates even if only the flat shapes arrive.
+      const anyMsg = msg as unknown as Record<string, unknown>;
+      if (
+        typeof anyMsg.transcription === "string" &&
+        typeof anyMsg.gloss === "string"
+      ) {
+        console.log(
+          "[WS RECEIVE] flat English->ISL →",
+          anyMsg.transcription,
+          "|",
+          anyMsg.gloss,
+        );
+        const transcription = anyMsg.transcription as string;
+        const glossStr = anyMsg.gloss as string;
+        // Push the English text into the transcript history so the "Recognized
+        // Sentence" box renders it.
+        appendTranscript({
+          id: `flat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          text: transcription,
+          confidence: 1,
+          partial: false,
+          timestampMs: Date.now(),
+        });
+        // Fan the gloss string out into tokens the avatar + pill UI expect.
+        const tokens = glossStr
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((g, i) => ({
+            gloss: g.toUpperCase(),
+            startMs: i * 300,
+            endMs: (i + 1) * 300,
+          }));
+        setGloss(tokens, transcription, "neutral");
+        // Don't return — let the legacy switch also run in case the backend
+        // sends both shapes in one payload (belt + suspenders).
+      }
+      if (anyMsg.type === "english_output") {
+        console.log("[WS RECEIVE] english_output →", anyMsg.transcription);
+        if (typeof anyMsg.transcription === "string") {
+          setRecognized(anyMsg.transcription, 1);
+        }
+      }
 
       switch (msg.type) {
         case "transcript": {

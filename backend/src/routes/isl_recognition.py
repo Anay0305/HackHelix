@@ -4,9 +4,9 @@ WebSocket endpoint: /ws/isl
 Frontend sends MediaPipe landmark frames continuously.
 Backend:
   1. Detects when hands are held still (sign held for 0.5s)
-  2. Classifies the held pose → ISL gloss word
+  2. Classifies the held pose -> ISL gloss word
   3. Adds to sign buffer
-  4. On 1.5s silence (no new signs) → Claude forms natural sentence
+  4. On 1.5s silence (no new signs) -> Claude forms natural sentence
   5. Sends sentence back + ElevenLabs TTS audio (base64)
 """
 
@@ -23,7 +23,7 @@ router = APIRouter()
 
 # Tuning constants
 HOLD_DURATION   = 0.5   # seconds hand must be still to count as a sign
-SILENCE_TIMEOUT = 1.5   # seconds of no new sign → flush buffer to sentence
+SILENCE_TIMEOUT = 1.5   # seconds of no new sign -> flush buffer to sentence
 MOVEMENT_THRESH = 0.04  # normalized landmark movement threshold for "still"
 
 
@@ -71,7 +71,7 @@ async def isl_websocket(ws: WebSocket):
             "tokens": gloss_tokens,
         })
 
-        # Claude → natural sentence
+        # Claude -> natural sentence
         try:
             sentence = await gloss_to_sentence(gloss_tokens)
         except Exception as e:
@@ -82,7 +82,7 @@ async def isl_websocket(ws: WebSocket):
             "text": sentence,
         })
 
-        # ElevenLabs TTS → base64 MP3
+        # ElevenLabs TTS -> base64 MP3
         try:
             audio_bytes = await synthesize(sentence)
             audio_b64 = base64.b64encode(audio_bytes).decode()

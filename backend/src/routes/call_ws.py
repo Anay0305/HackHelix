@@ -5,8 +5,8 @@ Two people share a 6-char room code. Each connects as "hearing" or "deaf".
 The backend runs the full pipeline for each side and routes output to the
 correct partner WebSocket:
 
-  Hearing  →  audio_chunk  →  Deepgram STT → ISL grammar → pose_sequence  →  Deaf
-  Deaf     →  landmarks    →  classifier  → LLM → ElevenLabs → tts_ready   →  Hearing
+  Hearing  ->  audio_chunk  ->  Deepgram STT -> ISL grammar -> pose_sequence  ->  Deaf
+  Deaf     ->  landmarks    ->  classifier  -> LLM -> ElevenLabs -> tts_ready   ->  Hearing
 """
 
 import asyncio
@@ -26,7 +26,7 @@ from src.services.pose_lookup import get_pose
 
 router = APIRouter()
 
-# In-memory room registry — room_id → {hearing: WS|None, deaf: WS|None}
+# In-memory room registry — room_id -> {hearing: WS|None, deaf: WS|None}
 rooms: dict[str, dict] = {}
 
 SILENCE_TIMEOUT = 1.5
@@ -236,7 +236,7 @@ async def call_websocket(
         except Exception:
             audio_url = ""
 
-        # TTS audio → hearing person; captions text → deaf person for confirmation
+        # TTS audio -> hearing person; captions text -> deaf person for confirmation
         await send_partner({"type": "tts_ready", "audioUrl": audio_url, "captions": sentence})
         await send_self({
             "type": "log", "level": "info",

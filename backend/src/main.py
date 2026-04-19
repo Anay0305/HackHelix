@@ -33,12 +33,16 @@ import os
 import sys
 from typing import Any
 
-# Force UTF-8 on stdout/stderr so print() calls with non-ASCII chars
-# (e.g. "→" in pose lookup logs) don't crash on Windows cp1252 consoles.
-for _stream in (sys.stdout, sys.stderr):
+# ── Bulletproof console encoding (Windows cp1252 crashes on Unicode) ────────
+# Without this, any print() / log call containing non-cp1252 chars (→, em-dash,
+# smart quotes, anything the LLM emits) raises UnicodeEncodeError. That bubbles
+# up through handle_final_transcript() and silently kills the gloss send.
+# `errors="replace"` substitutes "?" for unencodable bytes instead of throwing.
+for stream in (sys.stdout, sys.stderr):
     try:
-        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
-    except Exception:
+        stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    except (AttributeError, OSError):
+        # Stream was already closed or doesn't support reconfigure (very rare)
         pass
 
 import httpx
@@ -143,7 +147,7 @@ async def _warm_ml_models() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# The Brain — English → ISL Gloss via Groq Llama-3
+# The Brain — English -> ISL Gloss via Groq Llama-3
 # ──────────────────────────────────────────────────────────────────────────────
 
 ISL_SYSTEM_PROMPT = (
@@ -327,7 +331,7 @@ async def ws_translate(websocket: WebSocket) -> None:
 # ──────────────────────────────────────────────────────────────────────────────
 
 async def _handle_audio_in(ws: WebSocket, payload: dict[str, Any]) -> None:
-    """Hearing user spoke → Whisper STT → Llama ISL gloss → emit `isl_output`."""
+    """Hearing user spoke -> Whisper STT -> Llama ISL gloss -> emit `isl_output`."""
     b64 = payload.get("audio_base64", "")
     mime = payload.get("mime", "audio/webm")
 
@@ -378,7 +382,7 @@ async def _handle_audio_in(ws: WebSocket, payload: dict[str, Any]) -> None:
 
 
 async def _handle_text_in(ws: WebSocket, payload: dict[str, Any]) -> None:
-    """Deaf user's ISL → ElevenLabs TTS → emit `audio_output` as base64 MP3."""
+    """Deaf user's ISL -> ElevenLabs TTS -> emit `audio_output` as base64 MP3."""
     text = str(payload.get("text", "") or "").strip()
 
     if not text:

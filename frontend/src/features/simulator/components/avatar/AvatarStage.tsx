@@ -1,50 +1,35 @@
-import { Component, Suspense, useCallback, useEffect, useState } from "react";
+import { Component, Suspense, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Canvas } from "@react-three/fiber";
-import { ContactShadows, OrbitControls } from "@react-three/drei";
+import { ContactShadows, Html, OrbitControls } from "@react-three/drei";
 import { ProceduralAvatar } from "./ProceduralAvatar";
 import { preloadRPMAvatar } from "./RPMAvatar";
-import { PoseDrivenAvatar, preloadPoseAvatar } from "./PoseDrivenAvatar";
+import { preloadPoseAvatar } from "./PoseDrivenAvatar";
+import { SequencerAvatar, preloadSequencerAvatar } from "./SequencerAvatar";
 import { FingerspellOverlay } from "./FingerspellOverlay";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SigningPill } from "../SigningPill";
-import { useSimulatorStore, type AvatarCue } from "@/store/simulatorStore";
 import { env } from "@/lib/env";
 
 preloadRPMAvatar(env.rpmAvatarUrl);
 preloadPoseAvatar(env.rpmAvatarUrl);
+preloadSequencerAvatar();
 
 export function AvatarStage() {
   const [rpmFailed, setRpmFailed] = useState(false);
   const [fingerspellWord, setFingerspellWord] = useState<string | null>(null);
-  const glossTokens = useSimulatorStore((s) => s.glossTokens);
-  const sourceText = useSimulatorStore((s) => s.sourceText);
 
-  // When a cue arrives for a clip the RPM model doesn't contain, fall back
-  // to fingerspelling the most relevant word (last gloss token, else sourceText).
-  const handleMissingClip = useCallback(
-    (_cue: AvatarCue) => {
-      const lastGloss = glossTokens[glossTokens.length - 1]?.gloss;
-      const word = (lastGloss || sourceText || "").replace(/[^A-Za-z]/g, "");
-      if (word) setFingerspellWord(word.toUpperCase());
-    },
-    [glossTokens, sourceText],
-  );
-
-  // Reset fingerspell state when a new cue successfully plays (detected by cue changing while word cleared)
+  // Auto-clear the fingerspell overlay after the iteration finishes.
   useEffect(() => {
     if (!fingerspellWord) return;
-    // Auto-clear after max word length * letter interval + buffer
     const maxMs = Math.max(2000, fingerspellWord.length * 240 + 400);
     const t = setTimeout(() => setFingerspellWord(null), maxMs);
     return () => clearTimeout(t);
   }, [fingerspellWord]);
 
-  const useRpm = Boolean(env.rpmAvatarUrl) && !rpmFailed;
-
   return (
     <div
-      className="relative w-full h-full rounded-2xl overflow-hidden border border-white/10"
+      className="relative w-full h-[500px] md:h-full min-h-[400px] rounded-2xl overflow-hidden border border-white/10"
       style={{
         background:
           "radial-gradient(ellipse at top, rgba(139,92,246,0.18) 0%, transparent 55%), radial-gradient(ellipse at bottom right, rgba(192,81,119,0.12) 0%, transparent 55%), #0a0a0a",
@@ -71,40 +56,23 @@ export function AvatarStage() {
         dpr={[1, 2]}
         gl={{ antialias: true, alpha: true }}
       >
-        <ambientLight intensity={0.75} />
-        <directionalLight
-          position={[3, 4, 4]}
-          intensity={1.3}
-          castShadow
-          shadow-mapSize-width={1024}
-          shadow-mapSize-height={1024}
-          shadow-camera-left={-3}
-          shadow-camera-right={3}
-          shadow-camera-top={3}
-          shadow-camera-bottom={-1}
-        />
-        <directionalLight
-          position={[-3, 2, 2]}
-          intensity={0.55}
-          color="#C4B5FD"
-        />
-        <directionalLight
-          position={[0, 2, -3]}
-          intensity={0.5}
-          color="#F472B6"
-        />
+        {/* Bulletproof lighting — model is invisible without these */}
+        <ambientLight intensity={1.5} />
+        <directionalLight position={[0, 2, 5]} intensity={2} />
 
-        <Suspense fallback={null}>
-          {useRpm && env.rpmAvatarUrl ? (
-            <RpmBoundary onError={() => setRpmFailed(true)}>
-              <PoseDrivenAvatar
-                url={env.rpmAvatarUrl}
-                onMissingClip={handleMissingClip}
-              />
-            </RpmBoundary>
-          ) : (
-            <ProceduralAvatar />
-          )}
+        {/* useGLTF suspends — Avatar must be inside a Suspense boundary */}
+        <Suspense
+          fallback={
+            <Html center>
+              <div className="text-white text-sm font-inter">
+                Loading 3D Model…
+              </div>
+            </Html>
+          }
+        >
+          <RpmBoundary onError={() => setRpmFailed(true)}>
+            {rpmFailed ? <ProceduralAvatar /> : <SequencerAvatar />}
+          </RpmBoundary>
         </Suspense>
 
         <ContactShadows
@@ -116,15 +84,8 @@ export function AvatarStage() {
           color="#000"
         />
 
-        <OrbitControls
-          enablePan={false}
-          enableZoom={false}
-          target={[0, 1.35, 0]}
-          minPolarAngle={Math.PI / 2.6}
-          maxPolarAngle={Math.PI / 1.85}
-          minAzimuthAngle={-0.5}
-          maxAzimuthAngle={0.5}
-        />
+        {/* Temporarily unrestricted — pan/zoom around to find the model */}
+        <OrbitControls enableZoom={true} />
       </Canvas>
     </div>
   );

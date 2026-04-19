@@ -19,6 +19,47 @@ function flattenLandmarks(lms: Results["poseLandmarks"] | null | undefined): num
   return lms.flatMap((l) => [l.x, l.y, l.z]);
 }
 
+// Shared snapshot of the last MediaPipe result so <LandmarkOverlay /> can
+// draw the ACTUAL detected landmarks instead of decorative noise.
+export interface LandmarkSnapshot {
+  hasHand: boolean;
+  pose:      Array<{ x: number; y: number }>;   // 33 landmarks
+  rightHand: Array<{ x: number; y: number }>;   // 21 landmarks
+  leftHand:  Array<{ x: number; y: number }>;   // 21 landmarks
+  updatedAt: number;
+}
+
+const EMPTY_SNAPSHOT: LandmarkSnapshot = {
+  hasHand: false,
+  pose: [],
+  rightHand: [],
+  leftHand: [],
+  updatedAt: 0,
+};
+
+// Module-level singleton so any consumer can subscribe without prop drilling.
+let _snapshot: LandmarkSnapshot = EMPTY_SNAPSHOT;
+const _subs = new Set<(s: LandmarkSnapshot) => void>();
+
+export function getLandmarkSnapshot(): LandmarkSnapshot {
+  return _snapshot;
+}
+
+export function subscribeLandmarks(cb: (s: LandmarkSnapshot) => void): () => void {
+  _subs.add(cb);
+  cb(_snapshot);
+  return () => { _subs.delete(cb); };
+}
+
+function publishLandmarks(next: LandmarkSnapshot) {
+  _snapshot = next;
+  _subs.forEach((cb) => cb(next));
+}
+
+function toXY(lms: { x: number; y: number }[] | undefined | null) {
+  return (lms ?? []).map((l) => ({ x: l.x, y: l.y }));
+}
+
 export function useWebcamCapture() {
   const videoRef   = useRef<HTMLVideoElement | null>(null);
   const streamRef  = useRef<MediaStream | null>(null);
@@ -73,6 +114,16 @@ export function useWebcamCapture() {
           face:      flattenLandmarks(results.faceLandmarks),
         };
         const hasHand = frame.leftHand.length > 0 || frame.rightHand.length > 0;
+
+        // Publish real landmarks for the overlay
+        publishLandmarks({
+          hasHand,
+          pose:      toXY(results.poseLandmarks as never),
+          rightHand: toXY(results.rightHandLandmarks as never),
+          leftHand:  toXY(results.leftHandLandmarks as never),
+          updatedAt: performance.now(),
+        });
+
         const now = performance.now();
         if (now - lastDebugLog > 1000) {
           lastDebugLog = now;
@@ -122,6 +173,7 @@ export function useWebcamCapture() {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
+    publishLandmarks(EMPTY_SNAPSHOT);
     setState({ isActive: false, error: null });
   }
 

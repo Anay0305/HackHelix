@@ -44,15 +44,12 @@ gloss in English UPPERCASE tokens. ISL uses a fixed vocabulary — do not output
 Hindi words or Devanagari in the gloss.
 
 ISL grammar rules to apply:
-1. SOV order — move verb to end: "She drinks water" → SHE WATER DRINK
-2. Topic fronting — wh-word goes last: "What is your name?" → YOU NAME WHAT
-3. Drop function words — remove a/an/the, is/are/was/were/am, do/does/did,
-   and Hindi filler / particles (yaar, bhai, na, toh, hi, bhi, kya, hai) unless
-   they carry meaning (e.g. "kya" as the wh-word "what")
-4. Negation clause-finally — NOT goes last: "I don't know" → ME KNOW NOT
-5. Tense markers — "I ate" / "Maine khaya" → TIME-PAST ME EAT,
-   "I will go" / "Main jaunga" → TIME-FUTURE ME GO
-6. Use uppercase ISL gloss tokens only
+1. SOV order — move verb to end: "She drinks water" -> SHE WATER DRINK
+2. Topic fronting — wh-word goes last: "What is your name?" -> YOU NAME WHAT
+3. Drop function words — remove a/an/the, is/are/was/were/am, do/does/did
+4. Negation clause-finally — NOT goes last: "I don't know" -> ME KNOW NOT
+5. Tense markers — "I ate" -> TIME-PAST ME EAT, "I will go" -> TIME-FUTURE ME GO
+6. Use uppercase ISL gloss words
 
 Also output the NMM (non-manual marker):
 - "question" — for any question (yes/no or wh-question)

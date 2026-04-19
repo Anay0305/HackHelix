@@ -1,9 +1,9 @@
 """
 Emotion detection from audio (+ optional webcam frame).
 
-Audio path  : SpeechBrain wav2vec2-IEMOCAP → 4-class label (neu/hap/ang/sad)
-Energy path : librosa RMS → intensity [0, 1]
-Face path   : DeepFace → dominant facial emotion (optional, only when image supplied)
+Audio path  : SpeechBrain wav2vec2-IEMOCAP -> 4-class label (neu/hap/ang/sad)
+Energy path : librosa RMS -> intensity [0, 1]
+Face path   : DeepFace -> dominant facial emotion (optional, only when image supplied)
 
 Public API
 ----------
@@ -59,7 +59,7 @@ def _get_classifier():
 
 # ── morph target mapping ───────────────────────────────────────────────────
 
-# IEMOCAP short labels → avatar blend shapes
+# IEMOCAP short labels -> avatar blend shapes
 _MORPH: dict[str, dict] = {
     "neu":       {},
     "neutral":   {},
@@ -120,7 +120,7 @@ def analyze_audio_sync(pcm16_bytes: bytes, src_sr: int = 48000) -> dict:
     try:
         samples = _pcm16_to_float32(pcm16_bytes, src_sr)
 
-        # Energy → intensity
+        # Energy -> intensity
         rms = float(np.sqrt(np.mean(samples ** 2)))
         intensity = round(min(1.0, rms * 12), 3)
 

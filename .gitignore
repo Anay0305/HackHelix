@@ -6,6 +6,7 @@ build/
 .next/
 .cache/
 *.local
+.pptx
 
 # Python
 __pycache__/
@@ -22,8 +23,11 @@ venv/
 .env.*.local
 backend/.env
 frontend/.env.local
-frontend-old/.env.local
 
+
+# Generated / build artifacts
+*.tsbuildinfo
+vite.config.d.ts
 
 # Editor / IDE
 .idea/
