@@ -3,7 +3,8 @@ import type { ReactNode } from "react";
 import { Canvas } from "@react-three/fiber";
 import { ContactShadows, OrbitControls } from "@react-three/drei";
 import { ProceduralAvatar } from "./ProceduralAvatar";
-import { RPMAvatar, preloadRPMAvatar } from "./RPMAvatar";
+import { preloadRPMAvatar } from "./RPMAvatar";
+import { PoseDrivenAvatar, preloadPoseAvatar } from "./PoseDrivenAvatar";
 import { FingerspellOverlay } from "./FingerspellOverlay";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SigningPill } from "../SigningPill";
@@ -11,6 +12,7 @@ import { useSimulatorStore, type AvatarCue } from "@/store/simulatorStore";
 import { env } from "@/lib/env";
 
 preloadRPMAvatar(env.rpmAvatarUrl);
+preloadPoseAvatar(env.rpmAvatarUrl);
 
 export function AvatarStage() {
   const [rpmFailed, setRpmFailed] = useState(false);
@@ -95,7 +97,7 @@ export function AvatarStage() {
         <Suspense fallback={null}>
           {useRpm && env.rpmAvatarUrl ? (
             <RpmBoundary onError={() => setRpmFailed(true)}>
-              <RPMAvatar
+              <PoseDrivenAvatar
                 url={env.rpmAvatarUrl}
                 onMissingClip={handleMissingClip}
               />
