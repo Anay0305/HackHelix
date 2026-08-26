@@ -22,7 +22,7 @@ import { useSimulatorStore } from "@/store/simulatorStore";
  */
 
 // Browser auto-encodes the space + parens; vite serves the literal filename.
-const MODEL_PATH = "/model (1).glb";
+const MODEL_PATH = "/model.glb";
 const FADE_S = 0.3;
 // Hold the final frame of each clip for this long before the next sign starts.
 // Without it, the crossfade blends one sign straight into the next and viewers

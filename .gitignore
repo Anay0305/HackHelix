@@ -55,3 +55,7 @@ extension/overlay/*.glb
 *.pem
 *.key
 datasets/hand_landmarker.task
+
+# Office lock files and the pitch deck - the deck stays local, not in the repo
+~$*
+Sonorous.pptx
