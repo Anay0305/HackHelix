@@ -1,8 +1,8 @@
-# HackHelix — CLAUDE.md
+# Sonorous — CLAUDE.md
 
 ## What This Project Is
 
-HackHelix is a real-time accessibility layer for audio calls that serves deaf users. When a hearing person speaks on an audio call, their speech is converted to Indian Sign Language (ISL) and rendered as a Bitmoji-style 3D avatar on the deaf person's screen. The deaf person responds by signing (camera-based ISL recognition) or typing, which is converted to speech and sent back.
+Sonorous is a real-time accessibility layer for audio calls that serves deaf users. When a hearing person speaks on an audio call, their speech is converted to Indian Sign Language (ISL) and rendered as a Bitmoji-style 3D avatar on the deaf person's screen. The deaf person responds by signing (camera-based ISL recognition) or typing, which is converted to speech and sent back.
 
 This is NOT a video call app. It is an audio-call client with a synthesized ISL overlay — no video stream from the hearing side.
 
@@ -52,7 +52,7 @@ ElevenLabs TTS → audio → WebRTC stream → hearing person hears
 ## Project Structure
 
 ```
-HackHelix/
+Sonorous/
 ├── frontend/                    # React + Vite + Three.js
 │   ├── src/
 │   │   ├── components/

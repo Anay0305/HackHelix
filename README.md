@@ -1,6 +1,10 @@
-# HackHelix
+<img src="logo_sonorous.png" alt="Sonorous" width="72" />
+
+# Sonorous
 
 > Real-time Indian Sign Language synthesis layer for audio calls — making voice calls accessible to the deaf community.
+
+> Built at the **HackHelix** hackathon, April 2026.
 
 **Team:** Anay Gupta · Tejas Bal · Athrv Aggarwal · Umang Arora
 
@@ -12,9 +16,9 @@ India has ~18 million deaf individuals. When a hearing person calls a deaf perso
 
 ---
 
-## What HackHelix Does
+## What Sonorous Does
 
-HackHelix sits as an accessibility layer on top of a regular audio call:
+Sonorous sits as an accessibility layer on top of a regular audio call:
 
 **Hearing → Deaf:**
 The hearing person speaks normally. On the deaf person's device, their speech is transcribed in real-time, converted to grammatically correct ISL gloss, and rendered as a Bitmoji-style 3D avatar that signs the message.
@@ -178,7 +182,7 @@ This is a lookup table: gloss word → array of MediaPipe Holistic landmark fram
 
 ```bash
 git clone <repo>
-cd HackHelix
+cd Sonorous
 
 # Backend
 cd backend
@@ -228,7 +232,7 @@ Speak in Tab 1 → see the avatar sign in Tab 2.
 ## Project Structure
 
 ```
-HackHelix/
+Sonorous/
 ├── frontend/
 │   ├── src/
 │   │   ├── components/

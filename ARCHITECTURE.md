@@ -1,10 +1,10 @@
-# HackHelix — Technical Architecture Report
+# Sonorous — Technical Architecture Report
 
 ---
 
 ## Overview
 
-HackHelix (branded **Sonorous**) is a real-time bidirectional ISL accessibility platform. It bridges communication between deaf users and hearing users via a React frontend, a FastAPI WebSocket backend, and a 3D avatar rendering pipeline. There is **no video stream** from the hearing side — only audio is received; the deaf user sees a synthesized avatar.
+Sonorous (built at the Sonorous hackathon) is a real-time bidirectional ISL accessibility platform. It bridges communication between deaf users and hearing users via a React frontend, a FastAPI WebSocket backend, and a 3D avatar rendering pipeline. There is **no video stream** from the hearing side — only audio is received; the deaf user sees a synthesized avatar.
 
 ---
 
